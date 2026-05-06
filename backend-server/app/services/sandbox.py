@@ -28,7 +28,8 @@ async def execute_code_docker(code: str, language: str) -> dict:
         process = await asyncio.create_subprocess_exec(
             'docker', 'run', '--rm', 
             '--network', 'none',
-            '--memory=256m', '--cpus=0.5',
+            '--memory=128m', '--cpus=0.5',
+            '--read-only', '--pids-limit=64',
             '-v', f'{temp_file_path}:/app/main.py:ro',
             'sandbox-image',
             stdout=asyncio.subprocess.PIPE,
@@ -37,7 +38,7 @@ async def execute_code_docker(code: str, language: str) -> dict:
 
         try:
             # Wait with a timeout to prevent infinite loops
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
             exit_code = process.returncode
             
             return {
