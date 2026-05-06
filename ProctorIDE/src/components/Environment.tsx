@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from 'react'
-import Timer from './Timer'
 import Navbar from './Navbar'
 import QuestionPanel from './QuestionTab'
 import CodeEditor from './CodeEditor'

@@ -1,22 +1,12 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
 
 import "./App.css";
+
 import Token from "./components/Token";
-import Timer from "./components/Timer";
 import { useAuth } from "./context/AuthContext";
 import Environment from "./components/Environment";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
   const {examStarted} = useAuth()
-
-  // async function greet() {
-  //   // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  //   setGreetMsg(await invoke("greet", { name }));
-  // }
 
   return (
     <main className="w-screen min-h-screen p-0 m-0 flex items-center justify-center">

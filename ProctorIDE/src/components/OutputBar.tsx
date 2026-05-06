@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import React from "react";
+import { TerminalOutput } from "./TerminalOutput";
 
 const TerminalIcon = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -37,16 +38,7 @@ type TabId = (typeof TABS)[number]["id"];
 
 function TerminalContent() {
   return (
-
-    <></>
-    // <div className="p-4 space-y-1 font-mono text-xs">
-    //   <p><span className="text-emerald-400">$</span> <span className="text-gray-300">node solution.js</span></p>
-    //   <p className="text-gray-500">Running tests…</p>
-    //   <p className="text-emerald-400">✓ Test 1 passed</p>
-    //   <p className="text-emerald-400">✓ Test 2 passed</p>
-    //   <p className="text-amber-400">⚠ Test 3 — time limit 200 ms (used 187 ms)</p>
-    //   <p className="text-gray-500 mt-2">Process exited with code 0</p>
-    // </div>
+    <TerminalOutput />
   );
 }
 
