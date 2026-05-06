@@ -28,6 +28,7 @@ async def execute_code_docker(code: str, language: str) -> dict:
         process = await asyncio.create_subprocess_exec(
             'docker', 'run', '--rm', 
             '--network', 'none',
+            '--memory=256m', '--cpus=0.5',
             '-v', f'{temp_file_path}:/app/main.py:ro',
             'sandbox-image',
             stdout=asyncio.subprocess.PIPE,
