@@ -1,6 +1,8 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime
 
+# LTI
 class LaunchRequest(BaseModel):
     jwt: str
 
@@ -9,6 +11,7 @@ class ExamSessionResponse(BaseModel):
     context_id: str
     resource_link_id: str
     user_id: str
+    account_id: Optional[int]
     status: str
 
     class Config:
@@ -17,3 +20,64 @@ class ExamSessionResponse(BaseModel):
 class LaunchResponse(BaseModel):
     message: str
     session: ExamSessionResponse
+
+# User
+class UserAccountBase(BaseModel):
+    role_type: int
+    first_name: str
+    last_name: str
+    email: str
+
+class UserAccountResponse(UserAccountBase):
+    account_id: int
+    status: int
+    
+    class Config:
+        from_attributes = True
+
+# Question
+class QuestionBase(BaseModel):
+    title: str
+    description: str
+    diff_level: int
+    default_code: Optional[str] = None
+
+class QuestionResponse(QuestionBase):
+    question_id: int
+    exam_id: int
+    
+    class Config:
+        from_attributes = True
+
+# Exam
+class ExamBase(BaseModel):
+    title: str
+    description: str
+    start_time: datetime
+    end_time: datetime
+    duration: int
+
+class ExamResponse(ExamBase):
+    exam_id: int
+    questions: List[QuestionResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+# Submission
+class CodeExecutionRequest(BaseModel):
+    code: str
+    language: str
+    question_id: int
+    session_id: Optional[int] = None
+
+class CodeExecutionResponse(BaseModel):
+    stdout: str
+    stderr: str
+    exit_code: int
+    execution_time: float
+
+class SubmissionResponse(BaseModel):
+    status: str
+    score: float
+    feedback: str
