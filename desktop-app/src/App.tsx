@@ -2,6 +2,7 @@ import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+import { TerminalOutput } from "./components/TerminalOutput";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -44,6 +45,11 @@ function App() {
         <button type="submit">Greet</button>
       </form>
       <p>{greetMsg}</p>
+
+      <div className="terminal-section">
+        <h2>Console Output</h2>
+        <TerminalOutput />
+      </div>
     </main>
   );
 }
