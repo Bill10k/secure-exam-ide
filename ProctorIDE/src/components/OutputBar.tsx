@@ -31,14 +31,30 @@ const ChevronUp = () => (
 
 const TABS = [
   { id: "terminal", label: "Terminal", icon: <TerminalIcon /> },
+  { id: "input",    label: "Input",    icon: <TerminalIcon /> },
   { id: "output",   label: "Output",   icon: <OutputIcon />   },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
-function TerminalContent() {
+function TerminalContent({ onTerminalInit }: { onTerminalInit?: (terminal: any) => void }) {
   return (
-    <TerminalOutput />
+    <TerminalOutput onTerminalInit={onTerminalInit} />
+  );
+}
+
+function InputContent({ value, onChange }: { value: string, onChange: (val: string) => void }) {
+  return (
+    <div className="flex-1 flex flex-col h-full bg-[#1e1e1e] p-2">
+      <div className="text-gray-400 text-xs mb-1 ml-1 tracking-wider uppercase">Custom Input (Stdin)</div>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 w-full bg-[#1e1e1e] text-gray-300 font-mono text-sm p-2 outline-none border border-gray-700 rounded resize-none"
+        placeholder="Enter input text here. It will be passed using standard input (stdin) when 'Run' is pressed."
+        spellCheck={false}
+      />
+    </div>
   );
 }
 
@@ -69,9 +85,12 @@ const DEFAULT_H   = 220;
 
 interface OutputBarProps {
   onHeightChange?: (h: number) => void;
+  onTerminalInit?: (terminal: any) => void;
+  inputValue?: string;
+  onInputChange?: (val: string) => void;
 }
 
-export default function OutputBar({ onHeightChange }: OutputBarProps) {
+export default function OutputBar({ onHeightChange, onTerminalInit, inputValue = "", onInputChange }: OutputBarProps) {
   const [activeTab,  setActiveTab]  = useState<TabId>("terminal");
   const [collapsed,  setCollapsed]  = useState(false);
   const [panelH,     setPanelH]     = useState(DEFAULT_H);
@@ -174,7 +193,8 @@ export default function OutputBar({ onHeightChange }: OutputBarProps) {
 
       {/* content — always in DOM, overflow-hidden hides it when collapsed */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "terminal" && <TerminalContent />}
+        {activeTab === "terminal" && <TerminalContent onTerminalInit={onTerminalInit} />}
+        {activeTab === "input" && <InputContent value={inputValue} onChange={onInputChange || (() => {})} />}
         {activeTab === "output"   && <OutputContent />}
       </div>
     </div>

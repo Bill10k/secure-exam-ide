@@ -94,6 +94,7 @@ class TestCase(Base):
     input_data = Column(Text)
     expected_output = Column(Text)
     is_hidden = Column(Boolean, default=True)
+    weight = Column(Float, default=1.0)
     
     question = relationship("Question", back_populates="test_cases")
 

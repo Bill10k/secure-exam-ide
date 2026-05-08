@@ -1,12 +1,35 @@
-from fastapi import HTTPException, Depends, Header
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
+import jwt
 
-async def verify_admin_role(x_user_role: Optional[int] = Header(None)):
+# WARNING: In a true production environment, load this from an .env file
+SECRET_KEY = "secure-exam-ide-super-secret-key-123!"
+ALGORITHM = "HS256"
+
+security = HTTPBearer()
+
+async def get_current_user_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """
-    Placeholder dependency for checking admin privileges.
-    Expects a header X-User-Role: 2 (2 for Admin).
-    Can be replaced with actual DB/JWT token verification later.
+    Validates the Bearer token from the Authorization header.
     """
-    if x_user_role != 2:
-        raise HTTPException(status_code=403, detail="Admin privileges required")
-    return True
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Session token has expired.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid authentication token.")
+
+async def verify_admin_role(user_payload: dict = Depends(get_current_user_token)):
+    """
+    Verifies that the decoded JWT token grants Admin privileges.
+    Checks if 'role_type' == 2 (Admin).
+    """
+    role_type = user_payload.get("role_type")
+    
+    if role_type != 2:
+        raise HTTPException(status_code=403, detail="Admin privileges required to perform this action.")
+        
+    return user_payload

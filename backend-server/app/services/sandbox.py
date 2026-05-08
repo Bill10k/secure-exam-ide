@@ -4,9 +4,9 @@ import os
 from sqlalchemy.orm import Session
 from ..models import TestCase
 
-async def execute_code_docker(code: str, language: str) -> dict:
+async def execute_code_docker(code: str, language: str, custom_input: str = "") -> dict:
     """
-    Executes code inside the sandbox Docker container.
+    Executes code inside the sandbox Docker container with optional custom stdin.
     """
     if language.lower() != "python":
         return {
@@ -26,19 +26,22 @@ async def execute_code_docker(code: str, language: str) -> dict:
         # Mount the temp file as /app/main.py
         # Use --network none for security (no internet access for student code)
         process = await asyncio.create_subprocess_exec(
-            'docker', 'run', '--rm', 
+            'docker', 'run', '--rm', '-i',
             '--network', 'none',
             '--memory=128m', '--cpus=0.5',
             '--read-only', '--pids-limit=64',
             '-v', f'{temp_file_path}:/app/main.py:ro',
             'sandbox-image',
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
 
         try:
+            # Pass custom input if provided
+            input_bytes = custom_input.encode('utf-8') if custom_input else b''
             # Wait with a timeout to prevent infinite loops
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
+            stdout, stderr = await asyncio.wait_for(process.communicate(input=input_bytes), timeout=10.0)
             exit_code = process.returncode
             
             return {
@@ -53,9 +56,9 @@ async def execute_code_docker(code: str, language: str) -> dict:
             await process.communicate()
             return {
                 "stdout": "",
-                "stderr": "Execution timed out (5 seconds).",
+                "stderr": "Execution timed out (10 seconds).",
                 "exit_code": 124,
-                "execution_time": 5.0
+                "execution_time": 10.0
             }
 
     finally:
@@ -77,6 +80,8 @@ async def grade_submission_docker(code: str, question_id: int, db: Session) -> d
         }
 
     passed = 0
+    total_weight = 0.0
+    earned_weight = 0.0
     total = len(test_cases)
     feedback_messages = []
 
@@ -87,10 +92,15 @@ async def grade_submission_docker(code: str, question_id: int, db: Session) -> d
 
     try:
         for i, tc in enumerate(test_cases, 1):
+            tc_weight = tc.weight if hasattr(tc, 'weight') and tc.weight is not None else 1.0
+            total_weight += tc_weight
+
             # Run docker container interactively to pass stdin
             process = await asyncio.create_subprocess_exec(
                 'docker', 'run', '--rm', '-i',
                 '--network', 'none',
+                '--memory=128m', '--cpus=0.5',
+                '--read-only', '--pids-limit=64',
                 '-v', f'{temp_file_path}:/app/main.py:ro',
                 'sandbox-image',
                 stdin=asyncio.subprocess.PIPE,
@@ -100,10 +110,13 @@ async def grade_submission_docker(code: str, question_id: int, db: Session) -> d
 
             try:
                 # Pass the test case input data to stdin
-                input_bytes = tc.input_data.encode('utf-8') if tc.input_data else b''
+                # Schema uses 'input', fallback to 'input_data' if model hasn't been updated yet
+                tc_input = getattr(tc, 'input', getattr(tc, 'input_data', ''))
+                input_bytes = tc_input.encode('utf-8') if tc_input else b''
+                
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(input=input_bytes), 
-                    timeout=5.0
+                    timeout=10.0
                 )
                 
                 output_str = stdout.decode('utf-8').strip()
@@ -111,23 +124,27 @@ async def grade_submission_docker(code: str, question_id: int, db: Session) -> d
                 
                 if process.returncode == 0 and output_str == expected_str:
                     passed += 1
+                    earned_weight += tc_weight
                 else:
                     err = stderr.decode('utf-8').strip()
                     if err:
                         feedback_messages.append(f"Test case {i} failed with error: {err}")
+                    elif process.returncode != 0:
+                        feedback_messages.append(f"Test case {i} failed with exit code {process.returncode}")
                     else:
                         feedback_messages.append(f"Test case {i} failed. Expected output didn't match.")
                         
             except asyncio.TimeoutError:
                 process.kill()
                 await process.communicate()
-                feedback_messages.append(f"Test case {i} timed out.")
+                feedback_messages.append(f"Test case {i} timed out (10s).")
 
     finally:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
-    score = (passed / total) * 100.0
+    # Use weight-based scoring if total_weight > 0, otherwise standard percentage
+    score = (earned_weight / total_weight) * 100.0 if total_weight > 0 else 0.0
     status = "passed" if passed == total else "failed"
     
     feedback = f"Passed {passed}/{total} test cases."

@@ -1,11 +1,29 @@
 import { useState } from "react";
 
-type ToolbarState = "idle" | "running" | "debugging";
+type ToolbarState = "idle" | "running" | "debugging" | "submitting";
 
-function Toolbar() {
+interface ToolbarProps {
+  onRun?: () => void;
+  onSubmit?: () => void;
+}
+
+function Toolbar({ onRun, onSubmit }: ToolbarProps) {
   const [state, setState] = useState<ToolbarState>("idle");
 
-  const handleRun = () => setState(prev => prev === "running" ? "idle" : "running");
+  const handleRun = () => {
+    setState("running");
+    if (onRun) onRun();
+    // Simulate end of run after 1s if no external state handling resets it
+    setTimeout(() => setState("idle"), 1000); 
+  };
+  
+  const handleSubmit = () => {
+    setState("submitting");
+    if (onSubmit) onSubmit();
+    // Simulate end of submit after 1s if no external state handling resets it
+    setTimeout(() => setState("idle"), 1000);
+  };
+
   const handleDebug = () => setState(prev => prev === "debugging" ? "idle" : "debugging");
   const handleStop = () => setState("idle");
 
@@ -18,6 +36,15 @@ function Toolbar() {
       isActive: state === "running",
       onClick: handleRun,
       shortcut: "F5",
+    },
+    {
+      name: "Submit",
+      icon: "cloud_upload",
+      activeColor: "text-blue-400 bg-blue-400/10 border-blue-400/30",
+      hoverColor: "hover:text-blue-400 hover:bg-blue-400/10 hover:border-blue-400/30",
+      isActive: state === "submitting",
+      onClick: handleSubmit,
+      shortcut: "Ctrl+S",
     },
     {
       name: "Debug",

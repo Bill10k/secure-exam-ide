@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from .database import engine, Base
 from .routes import lti, submissions, questions, exams, admin
 
@@ -6,6 +7,15 @@ from .routes import lti, submissions, questions, exams, admin
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Secure Exam IDE API")
+
+# Configure CORS for local development and Tauri frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:1420", "tauri://localhost"],  # Added Tauri origin and Vite dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(lti.router)
 app.include_router(submissions.router)

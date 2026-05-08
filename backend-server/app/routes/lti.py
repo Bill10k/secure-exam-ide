@@ -4,23 +4,18 @@ import jwt
 
 from ..database import get_db
 from .. import models, schemas
+from ..dependencies import SECRET_KEY, ALGORITHM
 
 router = APIRouter(
     prefix="/api/launch",
     tags=["lti"],
 )
 
-# For Option A, this would be the shared secret. 
-# For now, we will just decode without verification to get the architecture working.
-# SECURITY WARNING: In production, you MUST verify the signature!
-# SECRET_KEY = "your-shared-secret"
-
 @router.post("/validate", response_model=schemas.LaunchResponse)
 def validate_launch(request: schemas.LaunchRequest, db: Session = Depends(get_db)):
     try:
-        # Decode the JWT without verification for now (Option A scaffolding)
-        # To verify: payload = jwt.decode(request.jwt, SECRET_KEY, algorithms=["HS256"])
-        payload = jwt.decode(request.jwt, options={"verify_signature": False})
+        # Decode the JWT WITH verification! This ensures the payload came from trusted LMS
+        payload = jwt.decode(request.jwt, SECRET_KEY, algorithms=[ALGORITHM])
         
         # Extract LTI 1.3 standard claims (these keys depend on the exact Moodle/LTI payload)
         # Using typical LTI 1.3 claims as an example:
