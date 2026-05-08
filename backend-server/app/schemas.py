@@ -42,9 +42,29 @@ class QuestionBase(BaseModel):
     diff_level: int
     default_code: Optional[str] = None
 
+class QuestionCreate(QuestionBase):
+    exam_id: int
+
 class QuestionResponse(QuestionBase):
     question_id: int
     exam_id: int
+    
+    class Config:
+        from_attributes = True
+
+# TestCase
+class TestCaseBase(BaseModel):
+    input_data: str
+    expected_output: str
+    is_hidden: bool = True
+    weight: Optional[float] = 1.0
+
+class TestCaseCreate(TestCaseBase):
+    question_id: int
+
+class TestCaseResponse(TestCaseBase):
+    test_case_id: int
+    question_id: int
     
     class Config:
         from_attributes = True
@@ -70,6 +90,7 @@ class CodeExecutionRequest(BaseModel):
     language: str
     question_id: int
     session_id: Optional[int] = None
+    custom_input: Optional[str] = ""
 
 class CodeExecutionResponse(BaseModel):
     stdout: str
