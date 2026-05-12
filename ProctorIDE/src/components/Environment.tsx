@@ -70,6 +70,8 @@ function Environment() {
     }
   };
 
+  
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
