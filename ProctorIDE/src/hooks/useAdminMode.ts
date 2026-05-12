@@ -23,8 +23,7 @@ export const useAdminMode = ({
     useState("");
 
   // TRACK SECRET COMBO PRESSES
-  const [comboCount, setComboCount] =
-    useState(0);
+  const [comboCount, setComboCount] = useState(0);
 
   // HOTKEY DETECTION
   useEffect(() => {

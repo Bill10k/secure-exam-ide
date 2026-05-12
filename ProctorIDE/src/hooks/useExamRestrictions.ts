@@ -89,7 +89,7 @@ export const useExamRestrictions = ({
 
     window.addEventListener("blur", handleBlur);
 
-    // CLEANUP
+    
 
     return () => {
 
