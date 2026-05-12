@@ -1,4 +1,7 @@
 
+import { useEffect } from "react";
+import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
 import Token from "./components/Token";
@@ -6,7 +9,49 @@ import { useAuth } from "./context/AuthContext";
 import Environment from "./components/Environment";
 
 function App() {
-  const {examStarted} = useAuth()
+  const {examStarted, startExam} = useAuth()
+
+  useEffect(() => {
+    // 1. Check if launched directly with a deep link argument (Linux typical behavior)
+    invoke<string[]>("get_cli_args").then((args) => {
+      console.log("CLI args:", args);
+      const urlStr = args.find(arg => arg.startsWith("proctoride://"));
+      if (urlStr) {
+        try {
+          const url = new URL(urlStr);
+          const sessionId = url.searchParams.get('session_id');
+          const examId = url.searchParams.get('exam_id');
+          if (sessionId && examId) {
+            startExam(`${sessionId}-${examId}`);
+          }
+        } catch (e) {
+          console.error("Failed to parse initial URL:", e);
+        }
+      }
+    });
+
+    // 2. Listen for deep links when the app is already open
+    const unsubscribe = onOpenUrl((urls) => {
+      console.log('Received deep link URL:', urls);
+      if (urls.length > 0) {
+        const urlStr = urls[0];
+        try {
+          const url = new URL(urlStr);
+          const sessionId = url.searchParams.get('session_id');
+          const examId = url.searchParams.get('exam_id');
+          if (sessionId && examId) {
+            startExam(`${sessionId}-${examId}`);
+          }
+        } catch (e) {
+          console.error("Failed to parse URL:", e);
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe.then(fn => fn());
+    };
+  }, [startExam]);
 
   return (
     <main className="w-screen min-h-screen p-0 m-0 flex items-center justify-center">

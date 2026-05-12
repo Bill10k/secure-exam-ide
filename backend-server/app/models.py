@@ -30,6 +30,7 @@ class ExamSession(Base):
     context_id = Column(String, index=True)
     resource_link_id = Column(String, index=True)
     user_id = Column(String, index=True) # LTI user ID
+    exam_id = Column(Integer, ForeignKey('exams.exam_id'), nullable=True) # Selected through deep linking
     
     # Internal User Link
     account_id = Column(Integer, ForeignKey('user_accounts.account_id'), nullable=True)

@@ -1,28 +1,51 @@
-import React, { useState, useCallback, useRef } from 'react'
-import Navbar from './Navbar'
-import QuestionPanel from './QuestionTab'
-import CodeEditor from './CodeEditor'
+import React, { useState, useCallback, useRef, useEffect } from "react"
+import Navbar from "./Navbar"
+import QuestionPanel from "./QuestionTab"
+import CodeEditor from "./CodeEditor"
+import { useAuth } from "../context/AuthContext"
 
 function Environment() {
+  const { token } = useAuth()
+  const [examState, setExamState] = useState<any>(null)
+  
   const [leftWidth, setLeftWidth] = useState(45) // percentage
   const [code, setCode] = useState<string | undefined>("# Write your Python code here...\n")
   const [customInput, setCustomInput] = useState<string>("")
+  const [activeQuestionId, setActiveQuestionId] = useState<number>(1)
   const terminalRef = useRef<any>(null)
+
+  useEffect(() => {
+    if (token && token.includes("-")) {
+      const [sessionId, examId] = token.split("-")
+      fetch(`http://localhost:8000/exams/session/${sessionId}/hydrate`)
+        .then(res => res.json())
+        .then(data => {
+          setExamState(data)
+          if (data.questions && data.questions.length > 0) {
+            setActiveQuestionId(data.questions[0].question_id)
+            if (data.questions[0].default_code) {
+               setCode(data.questions[0].default_code)
+            }
+          }
+        })
+        .catch(err => console.error("Error fetching exam data", err))
+    }
+  }, [token])
 
   const handleRun = async () => {
     if (!terminalRef.current) return;
     const term = terminalRef.current;
     
-    term.writeln('\x1b[33m\r\nRunning code...\x1b[0m');
+    term.writeln("\x1b[33m\r\nRunning code...\x1b[0m");
     
     try {
-      const response = await fetch('http://localhost:8000/submissions/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("http://localhost:8000/submissions/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: code || "",
           language: "python",
-          question_id: 1,
+          question_id: activeQuestionId,
           custom_input: customInput
         })
       });
@@ -30,10 +53,10 @@ function Environment() {
       const result = await response.json();
       
       if (result.stdout) {
-        term.writeln(result.stdout.replace(/\n/g, '\r\n'));
+        term.writeln(result.stdout.replace(/\n/g, "\r\n"));
       }
       if (result.stderr) {
-        term.writeln(`\x1b[31m${result.stderr.replace(/\n/g, '\r\n')}\x1b[0m`);
+        term.writeln(`\x1b[31m${result.stderr.replace(/\n/g, "\r\n")}\x1b[0m`);
       }
       
       term.writeln(`\x1b[36mProcess exited with code ${result.exit_code} in ${result.execution_time}s\x1b[0m`);
@@ -46,24 +69,24 @@ function Environment() {
     if (!terminalRef.current) return;
     const term = terminalRef.current;
     
-    term.writeln('\x1b[34m\r\nSubmitting code for grading...\x1b[0m');
+    term.writeln("\x1b[34m\r\nSubmitting code for grading...\x1b[0m");
     
     try {
-      const response = await fetch('http://localhost:8000/submissions/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("http://localhost:8000/submissions/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: code || "",
           language: "python",
-          question_id: 1 
+          question_id: activeQuestionId 
         })
       });
       
       const result = await response.json();
       
-      term.writeln(`Status: ${result.status === 'passed' ? '\x1b[32mPassed\x1b[0m' : '\x1b[31mFailed\x1b[0m'} (${result.score}%)`);
+      term.writeln(`Status: ${result.status === "passed" ? "\x1b[32mPassed\x1b[0m" : "\x1b[31mFailed\x1b[0m"} (${result.score}%)`);
       if (result.feedback) {
-        term.writeln(result.feedback.replace(/\n/g, '\r\n'));
+        term.writeln(result.feedback.replace(/\n/g, "\r\n"));
       }
     } catch (e: any) {
       term.writeln(`\x1b[31mError submitting code: ${e.message}\x1b[0m`);
@@ -79,50 +102,42 @@ function Environment() {
       const containerWidth = window.innerWidth
       const delta = moveEvent.clientX - startX
       const newWidth = startWidth + (delta / containerWidth) * 100
-      // Clamp between 20% and 80%
       setLeftWidth(Math.min(80, Math.max(20, newWidth)))
     }
 
     const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
     }
 
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
   }, [leftWidth])
 
+  if (!examState) return <div className="h-screen bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>;
+
   return (
-    <div className='w-full h-screen flex flex-col overflow-hidden'>
+    <div className="w-full h-screen flex flex-col overflow-hidden">
 
       <Navbar />
 
-      {/* Body: aside + divider + main side by side */}
-      <div className='flex flex-row flex-1 overflow-hidden'>
+      <div className="flex flex-row flex-1 overflow-hidden">
 
-        {/* Sidebar */}
         <aside
           style={{ width: `${leftWidth}%` }}
-          className='flex-shrink-0 bg-gray-700 flex flex-col overflow-y-auto'
+          className="flex-shrink-0 bg-gray-700 flex flex-col overflow-y-auto"
         >
-          {/* <div className='flex flex-row justify-center items-center text-lg bg-gray-600 gap-3 py-1 px-2 border-b border-gray-500'> */}
-           <QuestionPanel></QuestionPanel>
-          
-          <div className='p-4 text-white'>
-            {/* question body */}
-          </div>
+           <QuestionPanel questions={examState.questions} activeId={activeQuestionId} setActiveId={setActiveQuestionId} />
         </aside>
 
-        {/* Drag handle */}
         <div
           onMouseDown={handleMouseDown}
-          className='w-1 bg-gray-500 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors duration-150'
+          className="w-1 bg-gray-500 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors duration-150"
         />
 
-        {/* Coding section */}
         <div
           style={{ width: `${100 - leftWidth}%` }}
-          className='flex-shrink-0 //bg-amber-500 overflow-hidden'
+          className="flex-shrink-0 bg-gray-900 overflow-hidden"
         >
           <CodeEditor 
             value={code} 

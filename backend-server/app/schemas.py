@@ -11,6 +11,7 @@ class ExamSessionResponse(BaseModel):
     context_id: str
     resource_link_id: str
     user_id: str
+    exam_id: Optional[int]
     account_id: Optional[int]
     status: str
 
@@ -73,8 +74,8 @@ class TestCaseResponse(TestCaseBase):
 class ExamBase(BaseModel):
     title: str
     description: str
-    start_time: datetime
-    end_time: datetime
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
     duration: int
 
 class ExamResponse(ExamBase):
