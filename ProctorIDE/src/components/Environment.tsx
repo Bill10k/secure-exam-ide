@@ -16,7 +16,7 @@ function Environment() {
 
   useEffect(() => {
     if (token && token.includes("-")) {
-      const [sessionId, examId] = token.split("-")
+      const [sessionId] = token.split("-")
       fetch(`http://localhost:8000/exams/session/${sessionId}/hydrate`)
         .then(res => res.json())
         .then(data => {

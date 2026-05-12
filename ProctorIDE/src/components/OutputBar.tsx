@@ -9,13 +9,13 @@ const TerminalIcon = () => (
   </svg>
 );
 
-const OutputIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="3" width="20" height="14" rx="2" />
-    <line x1="8" y1="21" x2="16" y2="21" />
-    <line x1="12" y1="17" x2="12" y2="21" />
-  </svg>
-);
+// const OutputIcon = () => (
+//   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+//     <rect x="2" y="3" width="20" height="14" rx="2" />
+//     <line x1="8" y1="21" x2="16" y2="21" />
+//     <line x1="12" y1="17" x2="12" y2="21" />
+//   </svg>
+// );
 
 const ChevronDown = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -32,7 +32,7 @@ const ChevronUp = () => (
 const TABS = [
   { id: "terminal", label: "Terminal", icon: <TerminalIcon /> },
   { id: "input",    label: "Input",    icon: <TerminalIcon /> },
-  { id: "output",   label: "Output",   icon: <OutputIcon />   },
+  
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -58,23 +58,7 @@ function InputContent({ value, onChange }: { value: string, onChange: (val: stri
   );
 }
 
-function OutputContent() {
-  return (
 
-    <></>
-    // <div className="p-4 space-y-3 font-mono text-xs">
-    //   <div className="bg-gray-800 rounded-lg p-3 border border-gray-700 space-y-1">
-    //     <p className="text-gray-500 uppercase tracking-widest text-[10px]">stdout</p>
-    //     <p className="text-blue-300">[1, 2, 3] → 6</p>
-    //     <p className="text-blue-300">[4, 5, 6] → 15</p>
-    //   </div>
-    //   <div className="bg-gray-800 rounded-lg p-3 border border-gray-700 space-y-1">
-    //     <p className="text-gray-500 uppercase tracking-widest text-[10px]">result</p>
-    //     <p className="text-emerald-400 font-semibold">All test cases passed ✓</p>
-    //   </div>
-    // </div>
-  );
-}
 
 // TAB_BAR_H must match the actual rendered tab bar height.
 // py-2 = 8px top + 8px bottom, text-xs line-height ~16px → 32px total.
@@ -195,7 +179,7 @@ export default function OutputBar({ onHeightChange, onTerminalInit, inputValue =
       <div className="flex-1 overflow-y-auto">
         {activeTab === "terminal" && <TerminalContent onTerminalInit={onTerminalInit} />}
         {activeTab === "input" && <InputContent value={inputValue} onChange={onInputChange || (() => {})} />}
-        {activeTab === "output"   && <OutputContent />}
+       
       </div>
     </div>
   );

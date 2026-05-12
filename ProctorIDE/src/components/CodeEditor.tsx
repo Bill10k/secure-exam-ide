@@ -13,6 +13,12 @@ interface CodeEditorProps {
   onTerminalInit?: (terminal: any) => void;
 }
 
+
+
+window.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+});
+
 function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit }: CodeEditorProps) {
   const [outputH, setOutputH] = useState(220);
 

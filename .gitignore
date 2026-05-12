@@ -7,6 +7,7 @@ yarn-error.log*
 dist/
 dist-ssr/
 *.local
+myvenv/
 
 # Rust/Tauri
 /src-tauri/target/
@@ -14,6 +15,7 @@ dist-ssr/
 /src-tauri/bin/
 
 # Python
+myvenv/
 venv/
 __pycache__/
 *.py[cod]
