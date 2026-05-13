@@ -4,6 +4,7 @@ from ..database import get_db
 from ..schemas import CodeExecutionRequest, CodeExecutionResponse, SubmissionResponse
 from ..services.sandbox import execute_code_docker, grade_submission_docker
 from ..models import Submission, ExamSession, Question
+from ..services.gradebook import refresh_exam_gradebook
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
 
@@ -43,6 +44,7 @@ async def submit_code(request: CodeExecutionRequest, db: Session = Depends(get_d
 
     # 4. Create and save the submission
     new_submission = Submission(
+        session_id=request.session_id,
         user_id=user_id,
         question_id=request.question_id,
         exam_id=question.exam_id,
@@ -54,6 +56,9 @@ async def submit_code(request: CodeExecutionRequest, db: Session = Depends(get_d
     db.add(new_submission)
     db.commit()
     db.refresh(new_submission)
+
+    # Keep the exam-level gradebook in sync from the latest submission per question.
+    refresh_exam_gradebook(db, question.exam_id, user_id=user_id)
     
     # Output result to be piped to the Terminal
     return SubmissionResponse(**result)

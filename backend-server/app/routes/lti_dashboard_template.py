@@ -144,11 +144,14 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
         <div class="max-w-4xl mx-auto mt-10 bg-white rounded-lg shadow-md overflow-hidden">
             <div class="border-b border-gray-200">
                 <nav class="-mb-px flex">
-                    <button id="btn-tab-link" onclick="showTab('tab-link')" class="tab-btn w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-blue-500 text-blue-600">
+                    <button id="btn-tab-link" onclick="showTab('tab-link')" class="tab-btn w-1/3 py-4 px-1 text-center border-b-2 font-medium text-sm border-blue-500 text-blue-600">
                         Link Existing Exam
                     </button>
-                    <button id="btn-tab-create" onclick="showTab('tab-create')" class="tab-btn w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                    <button id="btn-tab-create" onclick="showTab('tab-create')" class="tab-btn w-1/3 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                         Create New Exam
+                    </button>
+                    <button id="btn-tab-results" onclick="showTab('tab-results')" class="tab-btn w-1/3 py-4 px-1 text-center border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                        Lecturer Results
                     </button>
                 </nav>
             </div>
@@ -171,7 +174,26 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                 </form>
             </div>
 
-            <!-- Tab 2: Create New (Dynamic wizard) -->
+            <!-- Tab 2: Lecturer Results -->
+            <div id="tab-results" class="tab-content p-6 hidden">
+                <h2 class="text-xl font-bold mb-4 text-gray-800">View Lecturer Results</h2>
+                <p class="text-sm text-gray-600 mb-4">Open submissions and grades inside Moodle for the selected exam.</p>
+                <form action="/api/launch/results" method="POST" class="space-y-4">
+                    <input type="hidden" name="id_token" value="{id_token}" />
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Exam</label>
+                        <select name="exam_id" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md border">
+                            <option value="">-- Choose an exam --</option>
+                            {options_html}
+                        </select>
+                    </div>
+                    <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-slate-700 hover:bg-slate-800">
+                        View Results in Moodle
+                    </button>
+                </form>
+            </div>
+
+            <!-- Tab 3: Create New (Dynamic wizard) -->
             <div id="tab-create" class="tab-content p-6 hidden">
                 
                 <!-- STEP 1: EXAM -->

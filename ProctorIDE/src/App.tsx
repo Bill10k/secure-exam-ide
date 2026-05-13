@@ -16,6 +16,61 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 function App() {
   const { examStarted, startExam } = useAuth();
 
+  // Initialize window to lockdown mode on app mount with retry
+  useEffect(() => {
+    const initializeWindow = async () => {
+      let retries = 0;
+      const maxRetries = 5;
+      
+      const attemptLockdown = async () => {
+        try {
+          console.log(`[Attempt ${retries + 1}/${maxRetries}] Setting lockdown mode...`);
+          const appWindow = getCurrentWindow();
+          
+          // Set properties with small delays between each to ensure they take effect
+          await appWindow.setDecorations(false);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          await appWindow.setResizable(false);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          await appWindow.setAlwaysOnTop(true);
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          const isFullscreen = await appWindow.isFullscreen();
+          console.log("Current fullscreen state:", isFullscreen);
+          
+          await appWindow.setFullscreen(true);
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          const finalFullscreen = await appWindow.isFullscreen();
+          console.log("Final fullscreen state:", finalFullscreen);
+          
+          if (finalFullscreen) {
+            console.log("✓ Window successfully set to fullscreen lockdown mode");
+          } else if (retries < maxRetries) {
+            console.log("Fullscreen not applied, retrying...");
+            retries++;
+            setTimeout(attemptLockdown, 500);
+          } else {
+            console.error("Failed to apply fullscreen after maximum retries");
+          }
+        } catch (error) {
+          console.error(`[Attempt ${retries + 1}] Error setting lockdown:`, error);
+          if (retries < maxRetries) {
+            retries++;
+            setTimeout(attemptLockdown, 500);
+          }
+        }
+      };
+
+      // Start after a longer initial delay to ensure window is fully ready
+      setTimeout(attemptLockdown, 500);
+    };
+
+    initializeWindow();
+  }, []);
+
   useEffect(() => {
     // 1. Check if launched directly with a deep link argument (Linux typical behavior)
     invoke<string[]>("get_cli_args").then((args) => {
@@ -72,7 +127,7 @@ function App() {
     setAdminMode,
   } = useAdminMode({
     password: "LIDE_ADMIN_2026",
-    timeout: 60000,
+    //timeout: 60000,
   });
 
   // AUTO PAUSE WHEN ADMIN MODE IS ACTIVE
@@ -84,40 +139,37 @@ function App() {
     }
   }, [adminMode]);
   useEffect(() => {
-
     const updateWindow = async () => {
+      try {
+        const appWindow = getCurrentWindow();
 
-      const appWindow = getCurrentWindow();
-
-      if (adminMode) {
-
-        // EXIT FULLSCREEN FIRST
-        await appWindow.setFullscreen(false);
-
-        // THEN RESTORE WINDOW FEATURES
-        await appWindow.setDecorations(true);
-
-        await appWindow.setResizable(true);
-
-        await appWindow.setAlwaysOnTop(false);
-
-      } else {
-
-        // LOCKDOWN MODE
-
-        await appWindow.setDecorations(false);
-
-        await appWindow.setResizable(false);
-
-        await appWindow.setAlwaysOnTop(true);
-
-        // RETURN TO FULLSCREEN LAST
-        await appWindow.setFullscreen(true);
+        if (adminMode) {
+          console.log("Entering admin mode - exiting lockdown");
+          // EXIT FULLSCREEN FIRST
+          await appWindow.setFullscreen(false);
+          // THEN RESTORE WINDOW FEATURES
+          await appWindow.setDecorations(true);
+          await appWindow.setResizable(true);
+          await appWindow.setAlwaysOnTop(false);
+          console.log("Admin mode enabled - window unlocked");
+        } else {
+          console.log("Entering lockdown mode - securing window");
+          // LOCKDOWN MODE
+          await appWindow.setDecorations(false);
+          await appWindow.setResizable(false);
+          await appWindow.setAlwaysOnTop(true);
+          // RETURN TO FULLSCREEN LAST
+          await appWindow.setFullscreen(true);
+          console.log("Lockdown mode enabled - window fullscreen");
+        }
+      } catch (error) {
+        console.error("Error updating window state:", error);
       }
     };
 
-    updateWindow();
-
+    // Add a small delay to ensure window is ready
+    const timer = setTimeout(updateWindow, 100);
+    return () => clearTimeout(timer);
   }, [adminMode]);
 
   // EXAM RESTRICTIONS

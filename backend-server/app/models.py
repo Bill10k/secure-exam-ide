@@ -37,9 +37,23 @@ class ExamSession(Base):
     user_account = relationship("UserAccount", back_populates="sessions")
     
     raw_jwt = Column(Text, nullable=True)
+    lti_user_sub = Column(String, nullable=True)
+    lti_issuer = Column(String, nullable=True)
+    lti_client_id = Column(String, nullable=True)
+    lti_deployment_id = Column(String, nullable=True)
+    ags_token_endpoint = Column(Text, nullable=True)
+    ags_lineitem_url = Column(Text, nullable=True)
+    ags_lineitems_url = Column(Text, nullable=True)
+    ags_scopes_json = Column(Text, nullable=True)
+    ags_grading_user_override = Column(String, nullable=True) # Optional override: which Moodle user ID to grade
+    ags_push_status = Column(String, default="not_synced")
+    ags_last_push_message = Column(Text, nullable=True)
+    ags_last_pushed_at = Column(DateTime(timezone=True), nullable=True)
     status = Column(String, default="initialized") # initialized, started, submitted
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    submissions = relationship("Submission", back_populates="session")
 
 class Exam(Base):
     __tablename__ = "exams"
@@ -103,6 +117,7 @@ class Submission(Base):
     __tablename__ = "submissions"
     
     submission_id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey('exam_sessions.id'), nullable=True)
     user_id = Column(Integer, ForeignKey('user_accounts.account_id'))
     question_id = Column(Integer, ForeignKey('questions.question_id'))
     exam_id = Column(Integer, ForeignKey('exams.exam_id'))
@@ -111,6 +126,7 @@ class Submission(Base):
     status = Column(Integer) # e.g., 0: pending, 1: graded
     submitted_at = Column(DateTime(timezone=True), server_default=func.now())
     
+    session = relationship("ExamSession", back_populates="submissions")
     user_account = relationship("UserAccount", back_populates="submissions")
     question = relationship("Question", back_populates="submissions")
     exam = relationship("Exam", back_populates="submissions")

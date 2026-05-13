@@ -1,17 +1,36 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Request
 from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+import json
 import jwt
 import time
 
 from ..database import get_db
 from .. import models, schemas
 from ..dependencies import SECRET_KEY, ALGORITHM
+from ..services.gradebook import refresh_exam_gradebook
+from ..services.moodle_ags import push_exam_grades_to_moodle
 
 router = APIRouter(
     prefix="/api/launch",
     tags=["lti"],
 )
+
+
+def _decode_launch_token(id_token: str) -> dict:
+    try:
+        return jwt.decode(id_token, options={"verify_signature": False})
+    except jwt.DecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JWT payload") from exc
+
+
+def _is_instructor_launch(payload: dict) -> bool:
+    roles = payload.get("https://purl.imsglobal.org/spec/lti/claim/roles", [])
+    if isinstance(roles, str):
+        roles = [roles]
+    instructor_tokens = ("Instructor", "TeachingAssistant", "ContentDeveloper", "Administrator")
+    return any(any(token in role for token in instructor_tokens) for role in roles)
 
 @router.post("/deep-link", response_class=HTMLResponse)
 def deep_link_selection(id_token: str = Form(...), db: Session = Depends(get_db)):
@@ -122,6 +141,226 @@ def deep_link_submit(id_token: str = Form(...), exam_id: int = Form(...), db: Se
     except jwt.DecodeError:
         raise HTTPException(status_code=400, detail="Invalid JWT payload")
 
+
+@router.post("/results", response_class=HTMLResponse)
+def instructor_results(id_token: str = Form(...), exam_id: int = Form(...), db: Session = Depends(get_db)):
+    """
+    Render a Moodle-facing results page for the lecturer using the launch token for authorization.
+    """
+    payload = _decode_launch_token(id_token)
+    if not _is_instructor_launch(payload):
+        raise HTTPException(status_code=403, detail="Instructor privileges required")
+
+    return _render_results_page(db, exam_id, id_token, refresh=False, push=False)
+
+
+@router.post("/results/push", response_class=HTMLResponse)
+def instructor_results_push(id_token: str = Form(...), exam_id: int = Form(...), db: Session = Depends(get_db)):
+    payload = _decode_launch_token(id_token)
+    if not _is_instructor_launch(payload):
+        raise HTTPException(status_code=403, detail="Instructor privileges required")
+
+    return _render_results_page(db, exam_id, id_token, refresh=True, push=True)
+
+
+@router.post("/results/refresh", response_class=HTMLResponse)
+def instructor_results_refresh(id_token: str = Form(...), exam_id: int = Form(...), db: Session = Depends(get_db)):
+    payload = _decode_launch_token(id_token)
+    if not _is_instructor_launch(payload):
+        raise HTTPException(status_code=403, detail="Instructor privileges required")
+
+    return _render_results_page(db, exam_id, id_token, refresh=True, push=False)
+
+
+def _render_results_page(db: Session, exam_id: int, id_token: str, refresh: bool = False, push: bool = False) -> HTMLResponse:
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    if refresh:
+        refresh_exam_gradebook(db, exam_id)
+
+    push_result = push_exam_grades_to_moodle(db, exam_id) if push else None
+
+    assignments = db.query(models.ExamAssignment, models.UserAccount).join(
+        models.UserAccount, models.ExamAssignment.account_id == models.UserAccount.account_id
+    ).filter(models.ExamAssignment.exam_id == exam_id).all()
+
+    submissions = db.query(models.Submission).filter(models.Submission.exam_id == exam_id).all()
+    sessions = db.query(models.ExamSession).filter(models.ExamSession.exam_id == exam_id).all()
+    unique_students = len(assignments)
+    completed_students = sum(1 for assignment, _user in assignments if assignment.status == 1)
+    score_values = [assignment.score or 0.0 for assignment, _user in assignments]
+    average_score = round(sum(score_values) / len(score_values), 2) if score_values else 0.0
+    highest_score = round(max(score_values), 2) if score_values else 0.0
+    lowest_score = round(min(score_values), 2) if score_values else 0.0
+    synced_sessions = sum(1 for session in sessions if session.ags_push_status == "pushed")
+
+    rows_html = ""
+    if assignments:
+        for assignment, user in assignments:
+            student_name = f"{user.first_name} {user.last_name}".strip()
+            sync_state = "Complete" if assignment.status == 1 else "In progress"
+            sync_badge = "bg-emerald-100 text-emerald-700" if assignment.status == 1 else "bg-amber-100 text-amber-700"
+            rows_html += f"""
+                <tr class=\"border-t border-gray-200\">
+                    <td class=\"px-4 py-3\">{student_name}</td>
+                    <td class=\"px-4 py-3\">{user.email}</td>
+                    <td class=\"px-4 py-3\">{assignment.score if assignment.score is not None else 0}</td>
+                    <td class=\"px-4 py-3\"><span class=\"inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold {sync_badge}\">{sync_state}</span></td>
+                    <td class=\"px-4 py-3\">{assignment.date_completed if assignment.date_completed else 'Pending'}</td>
+                </tr>
+            """
+    else:
+        rows_html = """
+            <tr>
+                <td colspan=\"5\" class=\"px-4 py-6 text-center text-gray-500\">No gradebook rows have been recorded for this exam yet.</td>
+            </tr>
+        """
+
+    refresh_message = "Gradebook refreshed from latest submissions." if refresh else "Gradebook is showing the current saved lecturer view."
+    if push_result:
+        refresh_message = f"Moodle sync attempted: {push_result['pushed']} pushed, {push_result['failed']} failed, {push_result['skipped']} skipped."
+
+    session_rows_html = ""
+    if sessions:
+        for session in sessions:
+            session_rows_html += f"""
+                <tr class=\"border-t border-gray-200\">
+                    <td class=\"px-4 py-3\">{session.id}</td>
+                    <td class=\"px-4 py-3\">{session.user_id}</td>
+                    <td class=\"px-4 py-3\">{session.ags_push_status or 'not_synced'}</td>
+                    <td class=\"px-4 py-3\">{session.ags_last_push_message or '—'}</td>
+                    <td class=\"px-4 py-3\">{session.ags_last_pushed_at or '—'}</td>
+                </tr>
+            """
+    else:
+        session_rows_html = """
+            <tr>
+                <td colspan=\"5\" class=\"px-4 py-6 text-center text-gray-500\">No launch sessions available.</td>
+            </tr>
+        """
+
+    return HTMLResponse(content=f"""
+    <!DOCTYPE html>
+    <html lang=\"en\">
+    <head>
+        <meta charset=\"UTF-8\">
+        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+        <title>ProctorIDE Results - {exam.title}</title>
+        <script src=\"https://cdn.tailwindcss.com\"></script>
+    </head>
+    <body class=\"bg-gray-50 min-h-screen\">
+        <div class=\"max-w-6xl mx-auto px-6 py-8\">
+            <div class=\"bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden\">
+                <div class=\"px-6 py-5 border-b border-gray-200 bg-slate-900 text-white\">
+                    <h1 class=\"text-2xl font-bold\">Lecturer Results</h1>
+                    <p class=\"text-slate-300 mt-1\">{exam.title}</p>
+                </div>
+                <div class=\"p-6 space-y-6\">
+                    <div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\">
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-slate-50\">
+                            <div class=\"text-sm text-gray-500\">Exam ID</div>
+                            <div class=\"text-xl font-semibold\">{exam.exam_id}</div>
+                        </div>
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-slate-50\">
+                            <div class=\"text-sm text-gray-500\">Gradebook Rows</div>
+                            <div class=\"text-xl font-semibold\">{unique_students}</div>
+                        </div>
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-slate-50\">
+                            <div class=\"text-sm text-gray-500\">Submissions</div>
+                            <div class=\"text-xl font-semibold\">{len(submissions)}</div>
+                        </div>
+                    </div>
+
+                    <div class=\"grid grid-cols-1 md:grid-cols-4 gap-4\">
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-white\">
+                            <div class=\"text-sm text-gray-500\">Average Score</div>
+                            <div class=\"text-xl font-semibold\">{average_score}%</div>
+                        </div>
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-white\">
+                            <div class=\"text-sm text-gray-500\">Highest</div>
+                            <div class=\"text-xl font-semibold\">{highest_score}%</div>
+                        </div>
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-white\">
+                            <div class=\"text-sm text-gray-500\">Lowest</div>
+                            <div class=\"text-xl font-semibold\">{lowest_score}%</div>
+                        </div>
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-white\">
+                            <div class=\"text-sm text-gray-500\">Completed Students</div>
+                            <div class=\"text-xl font-semibold\">{completed_students}</div>
+                        </div>
+                    </div>
+
+                    <div class=\"grid grid-cols-1 md:grid-cols-4 gap-4\">
+                        <div class=\"rounded-xl border border-gray-200 p-4 bg-white\">
+                            <div class=\"text-sm text-gray-500\">Moodle Sync</div>
+                            <div class=\"text-xl font-semibold\">{synced_sessions}/{len(sessions)}</div>
+                        </div>
+                        <div class=\"md:col-span-3 rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between gap-4\">
+                            <div>
+                                <div class=\"text-sm font-semibold text-slate-900\">Gradebook status</div>
+                                <div class=\"text-sm text-slate-600\">{refresh_message}</div>
+                            </div>
+                            <div class=\"flex flex-wrap gap-3 shrink-0\">
+                                <form action=\"/api/launch/results/refresh\" method=\"POST\" class=\"shrink-0\">
+                                    <input type=\"hidden\" name=\"id_token\" value=\"{id_token}\" />
+                                    <input type=\"hidden\" name=\"exam_id\" value=\"{exam_id}\" />
+                                    <button type=\"submit\" class=\"inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800\">Refresh Gradebook</button>
+                                </form>
+                                <form action=\"/api/launch/results/push\" method=\"POST\" class=\"shrink-0\">
+                                    <input type=\"hidden\" name=\"id_token\" value=\"{id_token}\" />
+                                    <input type=\"hidden\" name=\"exam_id\" value=\"{exam_id}\" />
+                                    <button type=\"submit\" class=\"inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500\">Push to Moodle</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class=\"overflow-x-auto border border-gray-200 rounded-xl\">
+                        <table class=\"min-w-full text-sm\">
+                            <thead class=\"bg-gray-100 text-gray-700\">
+                                <tr>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Student</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Email</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Score</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Sync Status</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Last Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody class=\"bg-white\">
+                                {rows_html}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class=\"overflow-x-auto border border-gray-200 rounded-xl\">
+                        <table class=\"min-w-full text-sm\">
+                            <thead class=\"bg-gray-100 text-gray-700\">
+                                <tr>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Session</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">LTI User</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">AGS Status</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Message</th>
+                                    <th class=\"text-left font-semibold px-4 py-3\">Last Push</th>
+                                </tr>
+                            </thead>
+                            <tbody class=\"bg-white\">
+                                {session_rows_html}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class=\"flex justify-end gap-3\">
+                        <a class=\"inline-flex items-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50\" href=\"javascript:history.back()\">Back</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """)
+
 @router.post("/validate")
 def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Session = Depends(get_db)):
     try:
@@ -133,6 +372,17 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
         context_id = payload.get("https://purl.imsglobal.org/spec/lti/claim/context", {}).get("id", "unknown_context")
         resource_link_id = payload.get("https://purl.imsglobal.org/spec/lti/claim/resource_link", {}).get("id", "unknown_resource")
         user_id = payload.get("sub", "unknown_user")
+        issuer = payload.get("iss")
+        client_id = payload.get("aud")
+        if isinstance(client_id, list):
+            client_id = client_id[0] if client_id else None
+        deployment_id = payload.get("https://purl.imsglobal.org/spec/lti/claim/deployment_id")
+        ags_endpoint = payload.get("https://purl.imsglobal.org/spec/lti-ags/claim/endpoint", {})
+        ags_lineitem_url = ags_endpoint.get("lineitem")
+        ags_lineitems_url = ags_endpoint.get("lineitems")
+        ags_scopes = ags_endpoint.get("scope", [])
+        if isinstance(ags_scopes, str):
+            ags_scopes = [ags_scopes]
         
         # Extract custom parameters configured during Deep Linking
         custom_params = payload.get("https://purl.imsglobal.org/spec/lti/claim/custom", {})
@@ -146,6 +396,13 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
             user_id=user_id,
             exam_id=exam_id,
             raw_jwt=id_token,
+            lti_user_sub=user_id,
+            lti_issuer=issuer,
+            lti_client_id=client_id,
+            lti_deployment_id=deployment_id,
+            ags_lineitem_url=ags_lineitem_url,
+            ags_lineitems_url=ags_lineitems_url,
+            ags_scopes_json=json.dumps(ags_scopes),
             status="initialized"
         )
         db.add(db_session)
@@ -190,6 +447,69 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
     except Exception as e:
         # Catch-all for database errors or missing payload data during this prototype phase
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal Server Error: {str(e)}")
+
+
+@router.post("/session/{session_id}/ags-config")
+def set_session_ags_config(session_id: int, payload: dict, db: Session = Depends(get_db)):
+    """
+    Set AGS-related configuration for a specific ExamSession and optionally trigger a push.
+    Payload example:
+    {
+      "lti_issuer": "https://lms.example.edu",
+      "lti_client_id": "client-id",
+      "ags_lineitem_url": "https://lms.example.edu/asm/lineitems/123",
+      "ags_lineitems_url": "https://lms.example.edu/asm/lineitems",
+      "ags_scopes": ["https://purl.imsglobal.org/spec/lti-ags/scope/score"],
+      "ags_grading_user_override": "3",  # Optional: override which Moodle user ID to grade (e.g., if teacher is launching)
+      "push": true
+    }
+    """
+    session = db.query(models.ExamSession).filter(models.ExamSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="ExamSession not found")
+
+    # Update provided fields
+    if payload.get("lti_issuer"):
+        session.lti_issuer = payload.get("lti_issuer")
+    if payload.get("lti_client_id"):
+        session.lti_client_id = payload.get("lti_client_id")
+    if payload.get("lti_deployment_id"):
+        session.lti_deployment_id = payload.get("lti_deployment_id")
+    if payload.get("token_endpoint"):
+        session.ags_token_endpoint = payload.get("token_endpoint")
+    if payload.get("ags_lineitem_url"):
+        session.ags_lineitem_url = payload.get("ags_lineitem_url")
+    if payload.get("ags_lineitems_url"):
+        session.ags_lineitems_url = payload.get("ags_lineitems_url")
+    if payload.get("ags_scopes") is not None:
+        try:
+            session.ags_scopes_json = json.dumps(payload.get("ags_scopes"))
+        except Exception:
+            session.ags_scopes_json = json.dumps([])
+    if payload.get("ags_grading_user_override"):
+        session.ags_grading_user_override = payload.get("ags_grading_user_override")
+
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    result = None
+    if payload.get("push"):
+        # Trigger push for the exam this session belongs to
+        try:
+            result = push_exam_grades_to_moodle(db, session.exam_id)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Push failed: {exc}")
+
+    response_body = {
+        "session_id": session.id,
+        "exam_id": session.exam_id,
+        "ags_configured": True,
+        "token_endpoint": session.ags_token_endpoint,
+        "grading_user_override": session.ags_grading_user_override,
+        "push_result": result,
+    }
+    return JSONResponse(response_body)
 
 # ================= Moodle LTI 1.3 Advantage Integration =================
 

@@ -7,7 +7,7 @@ type AdminModeOptions = {
 
 export const useAdminMode = ({
   password,
-  timeout = 60000,
+  //timeout = 60000,
 }: AdminModeOptions) => {
 
   const [showAdminModal, setShowAdminModal] =
@@ -81,19 +81,19 @@ export const useAdminMode = ({
   }, []);
 
   // AUTO DISABLE ADMIN MODE
-  useEffect(() => {
+  // useEffect(() => {
 
-    if (!adminMode) return;
+  //   if (!adminMode) return;
 
-    const timer = setTimeout(() => {
+  //   const timer = setTimeout(() => {
 
-      setAdminMode(false);
+  //     setAdminMode(false);
 
-    }, timeout);
+  //   }, timeout);
 
-    return () => clearTimeout(timer);
+  //   return () => clearTimeout(timer);
 
-  }, [adminMode, timeout]);
+  // }, [adminMode, timeout]);
 
   // VALIDATE PASSWORD
   const validateAdmin = () => {
