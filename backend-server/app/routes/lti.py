@@ -102,7 +102,7 @@ def deep_link_submit(id_token: str = Form(...), exam_id: int = Form(...), db: Se
                     "type": "ltiResourceLink",
                     "title": exam.title,
                     "text": exam.description,
-                    "url": f"http://host.docker.internal:8000/api/launch/validate", # The target launch URL
+                    "url": f"http://localhost:8000/api/launch/validate", # The target launch URL
                     "custom": {
                         "exam_id": str(exam.exam_id)
                     }
@@ -412,6 +412,7 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
         # Render a simple HTML response for the IDE inside the iFrame
         proctoride_url = f"proctoride://launch?session_id={db_session.id}&exam_id={exam_id}"
         
+        
         html_content = f"""
         <html>
             <head>
@@ -540,12 +541,13 @@ async def oidc_login(request: Request):
     import uuid
     state = str(uuid.uuid4())
     nonce = str(uuid.uuid4())
+ 
     
     # Normally store state in session
     OIDC_SESSIONS[state] = nonce
     
     # Replace this with the actual Moodle authorization URL provided
-    moodle_auth_url = "http://localhost:8080/mod/lti/auth.php" 
+    moodle_auth_url = "http://localhost/mod/lti/auth.php" 
     
     import urllib.parse
     params = {
@@ -563,6 +565,7 @@ async def oidc_login(request: Request):
         params["lti_message_hint"] = lti_message_hint
         
     redirect_url = f"{moodle_auth_url}?{urllib.parse.urlencode(params)}"
+    print(f"REDIRECT URL: {redirect_url}")
         
     # MUST be 302 or 303 so the browser makes a GET to Moodle's auth.php, not a POST
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)

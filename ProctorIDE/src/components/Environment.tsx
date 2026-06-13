@@ -2,10 +2,10 @@ import React, { useState, useCallback, useRef, useEffect } from "react"
 import Navbar from "./Navbar"
 import QuestionPanel from "./QuestionTab"
 import CodeEditor from "./CodeEditor"
-import { useAuth } from "../context/AuthContext"
+// import { useAuth } from "../context/AuthContext"
 
 function Environment() {
-  const { token } = useAuth()
+  // const { token } = useAuth()
   const [examState, setExamState] = useState<any>(null)
   
   const [leftWidth, setLeftWidth] = useState(45) // percentage
@@ -14,23 +14,31 @@ function Environment() {
   const [activeQuestionId, setActiveQuestionId] = useState<number>(1)
   const terminalRef = useRef<any>(null)
 
-  useEffect(() => {
-    if (token && token.includes("-")) {
-      const [sessionId] = token.split("-")
-      fetch(`http://localhost:8000/exams/session/${sessionId}/hydrate`)
-        .then(res => res.json())
-        .then(data => {
-          setExamState(data)
-          if (data.questions && data.questions.length > 0) {
-            setActiveQuestionId(data.questions[0].question_id)
-            if (data.questions[0].default_code) {
-               setCode(data.questions[0].default_code)
-            }
-          }
-        })
-        .catch(err => console.error("Error fetching exam data", err))
-    }
-  }, [token])
+useEffect(() => {
+
+  fetch(`http://localhost:8000/exams/session/14/hydrate`)
+    .then(async (res) => {
+      console.log("STATUS:", res.status);
+
+      const data = await res.json();
+      console.log("HYDRATE RESPONSE:", data);
+      console.log("QUESTIONS:", data.questions);
+
+      setExamState(data);
+
+      if (data.questions?.length > 0) {
+        setActiveQuestionId(data.questions[0].question_id);
+
+        if (data.questions[0].default_code) {
+          setCode(data.questions[0].default_code);
+        }
+      }
+    })
+    .catch((err) => {
+      console.error("FETCH ERROR:", err);
+    });
+
+}, []);
 
   const handleRun = async () => {
     if (!terminalRef.current) return;
@@ -114,7 +122,14 @@ function Environment() {
     document.addEventListener("mouseup", onMouseUp)
   }, [leftWidth])
 
-  if (!examState) return <div className="h-screen bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>;
+//  console.log("CURRENT EXAM STATE:", examState);
+
+if (!examState)
+  return (
+    <div className="h-screen bg-gray-900 text-white flex items-center justify-center">
+      Loading Exam Environment...
+    </div>
+  );
 
   return (
     <div className="w-full h-screen flex flex-col overflow-hidden">

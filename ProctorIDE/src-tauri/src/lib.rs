@@ -16,6 +16,10 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
+
+                #[cfg(debug_assertions)]
+                window.open_devtools();
+
                 let _ = window.set_decorations(false);
                 let _ = window.set_resizable(false);
                 let _ = window.set_always_on_top(true);

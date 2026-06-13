@@ -2,8 +2,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 
 interface AuthContextType {
   examStarted: boolean;
-  token: string;
-  startExam: (token: string) => void;
+  startExam:() => void;
   endExam: () => void;
 }
 
@@ -11,20 +10,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [examStarted, setExamStarted] = useState(false);
-  const [token, setToken] = useState("");
+  // const [token, setToken] = useState("");
 
-  const startExam = (t: string) => {
-    setToken(t);
+  const startExam = () => {
+    // setToken(t);
     setExamStarted(true);
   };
 
   const endExam = () => {
-    setToken("");
+    // setToken("");
     setExamStarted(false);
   };
 
   return (
-    <AuthContext.Provider value={{ examStarted, token, startExam, endExam }}>
+    <AuthContext.Provider value={{ examStarted, startExam, endExam }}>
       {children}
     </AuthContext.Provider>
   );
