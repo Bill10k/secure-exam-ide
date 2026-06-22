@@ -1,9 +1,10 @@
-import React from "react";
+// import React from "react";
 import ReactDOM from "react-dom/client";
 // import "./output.css";
 import App from "./App";
 import "./index.css";
-import { AuthProvider } from "./context/AuthContext";
+import { ExamTimingProvider } from "./context/ExamTimingContext";
+import { ExamProvider } from "./context/ExamContext";
 
 // const blockKeys = (e: KeyboardEvent) => {
 
@@ -47,9 +48,11 @@ import { AuthProvider } from "./context/AuthContext";
 // });
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <AuthProvider>
+  // <React.StrictMode>
+    <ExamProvider>
+    <ExamTimingProvider>
     <App />
-    </AuthProvider>
-  </React.StrictMode>,
+    </ExamTimingProvider>
+    </ExamProvider>
+  // </React.StrictMode>,
 );

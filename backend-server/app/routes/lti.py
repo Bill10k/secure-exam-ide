@@ -411,6 +411,7 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
         
         # Render a simple HTML response for the IDE inside the iFrame
         proctoride_url = f"proctoride://launch?session_id={db_session.id}&exam_id={exam_id}"
+        # fallback_url = f"http://localhost:3000/exam/launch?session_id={db_session.id}"
         
         
         html_content = f"""
@@ -425,6 +426,7 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
                     a.btn:hover {{ background-color: #1d4ed8; }}
                 </style>
                 <script>
+            
                     // Attempt to launch the deep link automatically
                     window.onload = function() {{
                         window.location.href = "{proctoride_url}";

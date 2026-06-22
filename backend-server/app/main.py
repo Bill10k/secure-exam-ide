@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
-from .database import engine, Base
+from .database import engine , Base
 from .routes import lti, submissions, questions, exams, admin
 
 # Create database tables

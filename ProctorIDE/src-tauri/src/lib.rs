@@ -1,51 +1,113 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use tauri::Manager;
+use std::sync::Mutex;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+use tauri::{Emitter, Manager, State};
+use log::{info, warn, error};
+use tauri_plugin_log::{Builder, Target};
+
+#[derive(Default)]
+struct DeepLinkState {
+    url: Mutex<Option<String>>,
 }
 
+// ----------------------
+// COMMAND: frontend can fetch last link
+// ----------------------
 #[tauri::command]
-fn get_cli_args() -> Vec<String> {
-    std::env::args().collect()
+fn get_deep_link(state: State<DeepLinkState>) -> Option<String> {
+    let value = state.url.lock().unwrap().clone();
+    info!("📦 get_deep_link called → {:?}", value);
+    value
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+// ----------------------
+// Helper: save + emit
+// ----------------------
+fn save_and_emit(app: &tauri::AppHandle, state: &DeepLinkState, url: String) {
+    info!("💾 Saving deep link: {}", url);
+
+    *state.url.lock().unwrap() = Some(url.clone());
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.emit("deep-link", url.clone());
+        info!("📡 Emitted deep-link event to frontend");
+    } else {
+        error!("❌ Main window not found");
+    }
+}
+
+// ----------------------
+// ENTRY POINT
+// ----------------------
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
+        .manage(DeepLinkState::default())
 
-                #[cfg(debug_assertions)]
-                window.open_devtools();
+        // ----------------------
+        // LOGGING PLUGIN (FIXED)
+        // ----------------------
+        .plugin(
+    Builder::default()
+        .targets([
+            Target::Stdout,
+            Target::Webview,
+            Target::LogDir,
+        ])
+        .level(log::LevelFilter::Info)
+        .build(),
+)
 
-                let _ = window.set_decorations(false);
-                let _ = window.set_resizable(false);
-                let _ = window.set_always_on_top(true);
+        // ----------------------
+        // DEEP LINK PLUGIN
+        // ----------------------
+        .plugin(tauri_plugin_deep_link::init())
 
-                if let Ok(Some(monitor)) = window.current_monitor() {
-                    let monitor_pos = monitor.position();
-                    let monitor_size = monitor.size();
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                        x: monitor_pos.x,
-                        y: monitor_pos.y,
-                    }));
-                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
-                        width: monitor_size.width,
-                        height: monitor_size.height,
-                    }));
+        // ----------------------
+        // SINGLE INSTANCE PLUGIN
+        // ----------------------
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            info!("🔁 SINGLE INSTANCE TRIGGERED: {:?}", argv);
+
+            let state = app.state::<DeepLinkState>();
+
+            if let Some(url) = argv.iter().find(|a| a.starts_with("proctoride://")) {
+                info!("🔥 Deep link from single instance: {}", url);
+
+                save_and_emit(app, &state, url.clone());
+
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_focus();
+                    info!("🎯 Focused main window");
                 }
+            } else {
+                warn!("⚠️ No deep link found in single instance args");
+            }
+        }))
 
-                let _ = window.maximize();
-                let _ = window.set_fullscreen(true);
+        // ----------------------
+        // SETUP (cold start)
+        // ----------------------
+        .setup(|app| {
+            let state = app.state::<DeepLinkState>();
+
+            let args: Vec<String> = std::env::args().collect();
+            info!("🚀 APP START ARGS: {:?}", args);
+
+            if let Some(url) = args.iter().find(|a| a.starts_with("proctoride://")) {
+                info!("🔥 FOUND DEEP LINK ON START: {}", url);
+
+                save_and_emit(&app.handle(), &state, url.clone());
+            } else {
+                info!("ℹ️ No deep link found on startup");
             }
 
             Ok(())
         })
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, get_cli_args])
+
+        // ----------------------
+        // COMMAND HANDLER
+        // ----------------------
+        .invoke_handler(tauri::generate_handler![get_deep_link])
+
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error running app");
 }

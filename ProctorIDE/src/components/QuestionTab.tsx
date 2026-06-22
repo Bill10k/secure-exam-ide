@@ -17,6 +17,7 @@ export default function QuestionPanel({ questions, activeId, setActiveId }: { qu
 
   const active = questions.find((q) => q.question_id === activeId) || questions[0];
 
+
   return (
     <div className="flex flex-col h-full bg-gray-900 text-gray-100 font-mono text-sm">
       <div className="flex flex-row align-items-center bg-gray-800 border-b border-gray-700 shrink-0 overflow-x-auto">

@@ -1,122 +1,117 @@
 import { useEffect, useState } from "react";
-import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { invoke } from "@tauri-apps/api/core";
+
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
 import "./App.css";
 
-// import Token from "./components/Token";
 import Environment from "./components/Environment";
 
-import { useAuth } from "./context/AuthContext";
+import { useExamTiming } from "./context/ExamTimingContext";
 
 import { useExamRestrictions } from "./hooks/useExamRestrictions";
 import { useAdminMode } from "./hooks/useAdminMode";
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useDeepLink } from "./hooks/Deeplink";
+import { useExam } from "./context/ExamContext";
+
 
 function App() {
-  const { examStarted, startExam } = useAuth();
+  const { examStarted } = useExamTiming();
+  const { setSession , session } = useExam();
 
-  // Initialize window to lockdown mode on app mount with retry
+
+  const [restrictionsPaused, setRestrictionsPaused] = useState(false);
+
+  useDeepLink((data) => {
+    if (!data) return;
+
+    console.log("✅ Session received:", data);
+    setSession({
+      session_id: data.sessionId,
+      exam_id: data.examId,
+    });
+  });
+
+  // =========================
+  // SESSION HANDLER (centralized)
+  // =========================
+
+// useEffect(() => {
+//   const boot = async () => {
+//     try {
+//       const result = await invoke<string | null>("get_deep_link");
+
+//       if (result) {
+//         console.log("🚀 Boot session from Rust:", result);
+
+//         // const url = new URL(result);
+
+//         // const session_id = url.searchParams.get("session_id");
+//         // const exam_id = url.searchParams.get("exam_id");
+
+//         // if (session_id && exam_id) {
+//         //   setSession({ session_id, exam_id });
+//         // }
+//       }
+//     } catch (err) {
+//       console.error("Boot session error:", err);
+//     } finally {
+//       // 🔥 IMPORTANT: always release boot gate
+//       // setBooting(false);
+//     }
+//   };
+
+//   boot();
+// }, []);
+
+// useEffect(() => {
+//   const unlistenPromise = listen<string>("deep-link", (event) => {
+//     const urlStr = event.payload;
+
+//     console.log("🔥 Deep link received:", urlStr);
+
+//     try {
+//       const url = new URL(urlStr);
+
+//       const session_id = url.searchParams.get("session_id");
+//       const exam_id = url.searchParams.get("exam_id");
+
+//       if (!session_id || !exam_id) return;
+
+//       // setSession({ session_id, exam_id });
+
+//       console.log("✅ Session set from deep link");
+//     } catch (e) {
+//       console.error("URL parse error:", e);
+//     }
+//   });
+
+//   return () => {
+//     unlistenPromise.then((fn) => fn());
+//   };
+// }, []);
+
+  // =========================
+  // WINDOW LOCKDOWN (unchanged logic)
+  // =========================
   useEffect(() => {
     const initializeWindow = async () => {
-      let retries = 0;
-      const maxRetries = 5;
-      
-      const attemptLockdown = async () => {
-        try {
-          console.log(`[Attempt ${retries + 1}/${maxRetries}] Setting lockdown mode...`);
-          const appWindow = getCurrentWindow();
-          
-          // Set properties with small delays between each to ensure they take effect
-          await appWindow.setDecorations(false);
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          await appWindow.setResizable(false);
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          await appWindow.setAlwaysOnTop(true);
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          const isFullscreen = await appWindow.isFullscreen();
-          console.log("Current fullscreen state:", isFullscreen);
-          
-          await appWindow.setFullscreen(true);
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          const finalFullscreen = await appWindow.isFullscreen();
-          console.log("Final fullscreen state:", finalFullscreen);
-          
-          if (finalFullscreen) {
-            console.log("✓ Window successfully set to fullscreen lockdown mode");
-          } else if (retries < maxRetries) {
-            console.log("Fullscreen not applied, retrying...");
-            retries++;
-            setTimeout(attemptLockdown, 500);
-          } else {
-            console.error("Failed to apply fullscreen after maximum retries");
-          }
-        } catch (error) {
-          console.error(`[Attempt ${retries + 1}] Error setting lockdown:`, error);
-          if (retries < maxRetries) {
-            retries++;
-            setTimeout(attemptLockdown, 500);
-          }
-        }
-      };
+      try {
+        const appWindow = getCurrentWindow();
 
-      // Start after a longer initial delay to ensure window is fully ready
-      setTimeout(attemptLockdown, 500);
+        await appWindow.setDecorations(false);
+        await appWindow.setResizable(false);
+        await appWindow.setAlwaysOnTop(true);
+        await appWindow.setFullscreen(true);
+
+        console.log("Window locked down");
+      } catch (err) {
+        console.error("Window init error:", err);
+      }
     };
 
     initializeWindow();
   }, []);
-
-  useEffect(() => {
-   
-    invoke<string[]>("get_cli_args").then((args) => {
-      console.log("CLI args:", args);
-      const urlStr = args.find((arg) => arg.startsWith("proctoride://"));
-      if (urlStr) {
-        try {
-          // const url = new URL(urlStr);
-          // const sessionId = url.searchParams.get("session_id");
-          // const examId = url.searchParams.get("exam_id");
-          // console.log(url.searchParams)
-          // if (sessionId && examId) {
-          //   startExam(`${sessionId}-${examId}`);
-          // }
-          startExam();
-        } catch (e) {
-          console.error("Failed to parse initial URL:", e);
-        }
-      }
-    });
-
-    // 2. Listen for deep links when the app is already open
-    const unsubscribe = onOpenUrl((urls) => {
-      console.log("Received deep link URL:", urls);
-      if (urls.length > 0) {
-        // const urlStr = urls[0];
-        try {
-          // const url = new URL(urlStr);
-          // const sessionId = url.searchParams.get("session_id");
-          // const examId = url.searchParams.get("exam_id");
-          startExam()
-          // if (sessionId && examId) {
-          //   startExam(`${sessionId}-${examId}`);
-          // }
-        } catch (e) {
-          console.error("Failed to parse URL:", e);
-        }
-      }
-    });
-
-    return () => {
-      unsubscribe.then((fn) => fn());
-    };
-  }, [startExam]);
-
-  const [restrictionsPaused, setRestrictionsPaused] = useState(false);
 
   // ADMIN MODE
   const {
@@ -183,10 +178,42 @@ function App() {
     },
   });
 
+//  if (booting) {
+//   return (
+//     <div className="h-screen flex items-center justify-center bg-black text-white">
+//       Initializing secure exam environment...
+//     </div>
+//   );
+// }
+
+// if (!session) {
+//   return (
+//     <>
+
+//      <div className="h-screen flex items-center justify-center bg-black text-white">
+//       Waiting for exam session...
+//     </div>
+//     <DetectUrl/>
+    
+    
+//     </>
+   
+//   );
+// }
+
+if (!session) {
+  return (
+    <div className="h-screen flex items-center justify-center bg-black text-white">
+      Waiting for exam session...
+    </div>
+  );
+}
+
   return (
     <main className="w-screen min-h-screen p-0 m-0 flex items-center justify-center">
+      {/* <DetectUrl/> */}
 
-       {!examStarted ? (
+      {/* {!examStarted ? (
       <button
         onClick={startExam}
         className="bg-blue-600 text-white px-4 py-2 rounded"
@@ -195,8 +222,9 @@ function App() {
       </button>
     ) : (
       <Environment />
-    )}
+    )} */}
 
+      <Environment />
       {/* ADMIN MODAL */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
