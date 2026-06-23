@@ -5,7 +5,7 @@ import CodeEditor from "./CodeEditor"
 import { useAuth } from "../context/AuthContext"
 
 function Environment() {
-  const { token } = useAuth()
+  const { sessionId, examId } = useAuth()
   const [examState, setExamState] = useState<any>(null)
   
   const [leftWidth, setLeftWidth] = useState(45) // percentage
@@ -14,28 +14,44 @@ function Environment() {
   const [activeQuestionId, setActiveQuestionId] = useState<number>(1)
   const terminalRef = useRef<any>(null)
 
-  useEffect(() => {
-    if (token && token.includes("-")) {
-      const [sessionId] = token.split("-")
-      fetch(`http://localhost:8000/exams/session/${sessionId}/hydrate`)
-        .then(res => res.json())
-        .then(data => {
-          setExamState(data)
-          if (data.questions && data.questions.length > 0) {
-            setActiveQuestionId(data.questions[0].question_id)
-            if (data.questions[0].default_code) {
-               setCode(data.questions[0].default_code)
-            }
-          }
-        })
-        .catch(err => console.error("Error fetching exam data", err))
-    }
-  }, [token])
+  const [loading, setLoading] = useState(true)
+const [error, setError] = useState<string | null>(null)
+
+useEffect(() => {
+  if (!sessionId || !examId) return
+
+  setLoading(true)
+  setError(null)
+
+  fetch(`http://127.0.0.1:8000/exams/session/${sessionId}/hydrate`)
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`Hydrate failed: ${res.status}`)
+      return res.json()
+    })
+    .then((data) => {
+      if (!data || !Array.isArray(data.questions)) {
+        throw new Error("Hydrate response missing questions[]")
+      }
+      setExamState(data)
+      if (data.questions.length > 0) {
+        setActiveQuestionId(data.questions[0].question_id)
+        if (data.questions[0].default_code) setCode(data.questions[0].default_code)
+      }
+    })
+    .catch((err) => {
+      console.error("[Environment] Error fetching exam data", err)
+      setError(err.message || "Failed to load exam")
+    })
+    .finally(() => setLoading(false))
+}, [sessionId, examId])
+
+
 
   const handleRun = async () => {
     if (!terminalRef.current) return;
     const term = terminalRef.current;
     
+    console.log("[Environment] Running code", { questionId: activeQuestionId })
     term.writeln("\x1b[33m\r\nRunning code...\x1b[0m");
     
     try {
@@ -69,6 +85,7 @@ function Environment() {
     if (!terminalRef.current) return;
     const term = terminalRef.current;
     
+    console.log("[Environment] Submitting code", { questionId: activeQuestionId })
     term.writeln("\x1b[34m\r\nSubmitting code for grading...\x1b[0m");
     
     try {
@@ -114,8 +131,13 @@ function Environment() {
     document.addEventListener("mouseup", onMouseUp)
   }, [leftWidth])
 
-  if (!examState) return <div className="h-screen bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>;
-
+  // if (!examState) return <div className="h-screen w-full bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>;
+if (loading) {
+  return <div className="h-screen w-full bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>
+}
+if (error) {
+  return <div className="h-screen w-full bg-gray-900 text-red-300 flex items-center justify-center">Error: {error}</div>
+}
   return (
     <div className="w-full h-screen flex flex-col overflow-hidden">
 
@@ -125,19 +147,19 @@ function Environment() {
 
         <aside
           style={{ width: `${leftWidth}%` }}
-          className="flex-shrink-0 bg-gray-700 flex flex-col overflow-y-auto"
+          className="shrink-0 bg-gray-700 flex flex-col overflow-y-auto"
         >
            <QuestionPanel questions={examState.questions} activeId={activeQuestionId} setActiveId={setActiveQuestionId} />
         </aside>
 
         <div
           onMouseDown={handleMouseDown}
-          className="w-1 bg-gray-500 hover:bg-blue-400 cursor-col-resize flex-shrink-0 transition-colors duration-150"
+          className="w-1 bg-gray-500 hover:bg-blue-400 cursor-col-resize shrink-0 transition-colors duration-150"
         />
 
         <div
           style={{ width: `${100 - leftWidth}%` }}
-          className="flex-shrink-0 bg-gray-900 overflow-hidden"
+          className="shrink-0 bg-gray-900 overflow-hidden"
         >
           <CodeEditor 
             value={code} 

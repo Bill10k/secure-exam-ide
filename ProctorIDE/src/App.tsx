@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
-import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
-import Token from "./components/Token";
 import Environment from "./components/Environment";
 
 import { useAuth } from "./context/AuthContext";
 
 import { useExamRestrictions } from "./hooks/useExamRestrictions";
 import { useAdminMode } from "./hooks/useAdminMode";
+import { useDeepLink } from "./hooks/useDeepLink";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -71,47 +69,10 @@ function App() {
     initializeWindow();
   }, []);
 
-  useEffect(() => {
-    // 1. Check if launched directly with a deep link argument (Linux typical behavior)
-    invoke<string[]>("get_cli_args").then((args) => {
-      console.log("CLI args:", args);
-      const urlStr = args.find((arg) => arg.startsWith("proctoride://"));
-      if (urlStr) {
-        try {
-          const url = new URL(urlStr);
-          const sessionId = url.searchParams.get("session_id");
-          const examId = url.searchParams.get("exam_id");
-          if (sessionId && examId) {
-            startExam(`${sessionId}-${examId}`);
-          }
-        } catch (e) {
-          console.error("Failed to parse initial URL:", e);
-        }
-      }
-    });
-
-    // 2. Listen for deep links when the app is already open
-    const unsubscribe = onOpenUrl((urls) => {
-      console.log("Received deep link URL:", urls);
-      if (urls.length > 0) {
-        const urlStr = urls[0];
-        try {
-          const url = new URL(urlStr);
-          const sessionId = url.searchParams.get("session_id");
-          const examId = url.searchParams.get("exam_id");
-          if (sessionId && examId) {
-            startExam(`${sessionId}-${examId}`);
-          }
-        } catch (e) {
-          console.error("Failed to parse URL:", e);
-        }
-      }
-    });
-
-    return () => {
-      unsubscribe.then((fn) => fn());
-    };
-  }, [startExam]);
+  useDeepLink((sessionId, examId) => {
+    console.log("[App] Launch data received", { sessionId, examId });
+    startExam(sessionId, examId);
+  });
 
   const [restrictionsPaused, setRestrictionsPaused] = useState(false);
 
@@ -183,17 +144,13 @@ function App() {
   return (
     <main className="w-screen min-h-screen p-0 m-0 flex items-center justify-center">
 
-      {!examStarted ? (
-        <Token />
-      ) : (
-        <Environment />
-      )}
+      <Environment />
 
       {/* ADMIN MODAL */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
 
-          <div className="bg-gray-700 p-6 rounded-xl w-[400px]">
+          <div className="bg-gray-700 p-6 rounded-xl w-100">
 
             <h2 className="text-2xl font-bold mb-4">
               Admin Access
@@ -240,7 +197,7 @@ function App() {
 
       {/* ADMIN CONTROLS */}
       {adminMode && (
-        <div className="fixed bottom-5 right-5 bg-white shadow-2xl rounded-xl p-4 z-50 w-[250px]">
+        <div className="fixed bottom-5 right-5 bg-white shadow-2xl rounded-xl p-4 z-50 w-62.5">
 
           <h3 className="font-bold text-lg mb-3">
             Admin Controls

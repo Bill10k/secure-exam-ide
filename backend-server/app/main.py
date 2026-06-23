@@ -43,7 +43,9 @@ app = FastAPI(title="Secure Exam IDE API")
 # Configure CORS for local development and Tauri frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "tauri://localhost"],  # Added Tauri origin and Vite dev server
+    allow_origins=[
+       "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

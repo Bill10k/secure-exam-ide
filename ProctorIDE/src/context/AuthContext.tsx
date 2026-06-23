@@ -2,8 +2,9 @@ import { createContext, useContext, useState, ReactNode } from "react";
 
 interface AuthContextType {
   examStarted: boolean;
-  token: string;
-  startExam: (token: string) => void;
+  sessionId: number | null;
+  examId: number | null;
+  startExam: (sessionId: number, examId: number) => void;
   endExam: () => void;
 }
 
@@ -11,20 +12,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [examStarted, setExamStarted] = useState(false);
-  const [token, setToken] = useState("");
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [examId, setExamId] = useState<number | null>(null);
 
-  const startExam = (t: string) => {
-    setToken(t);
+  const startExam = (nextSessionId: number, nextExamId: number) => {
+    console.log("[Auth] Starting exam", { sessionId: nextSessionId, examId: nextExamId });
+    setSessionId(nextSessionId);
+    setExamId(nextExamId);
     setExamStarted(true);
   };
 
   const endExam = () => {
-    setToken("");
+    console.log("[Auth] Ending exam");
+    setSessionId(null);
+    setExamId(null);
     setExamStarted(false);
   };
 
   return (
-    <AuthContext.Provider value={{ examStarted, token, startExam, endExam }}>
+    <AuthContext.Provider value={{ examStarted, sessionId, examId, startExam, endExam }}>
       {children}
     </AuthContext.Provider>
   );

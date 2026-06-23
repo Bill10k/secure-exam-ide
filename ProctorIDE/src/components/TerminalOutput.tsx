@@ -20,7 +20,8 @@ export function TerminalOutput({ onTerminalInit }: TerminalOutputProps) {
       theme: {
         background: '#1e1e1e',
         foreground: '#f6f6f6'
-      }
+      },
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
     });
 
     const fitAddon = new FitAddon();
