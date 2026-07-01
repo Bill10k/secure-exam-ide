@@ -3,7 +3,7 @@
 
 // function Token() {
 //   const { startExam } = useAuth();
-//   // const [tokenInput, setTokenInput] = useState("");
+//   const [tokenInput, setTokenInput] = useState("");
 
 //   return (
 //     <div className="tokenDiag ">

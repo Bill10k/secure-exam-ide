@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session
 import json
 import jwt
 import time
+from pathlib import Path
+
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives import serialization
 
 from ..database import get_db
 from .. import models, schemas
@@ -16,6 +20,45 @@ router = APIRouter(
     prefix="/api/launch",
     tags=["lti"],
 )
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+PRIVATE_KEY_PATH = BASE_DIR / "private.key"
+PUBLIC_KEY_PATH = BASE_DIR / "public.key"
+
+
+def _ensure_keypair() -> None:
+    if PRIVATE_KEY_PATH.exists() and PUBLIC_KEY_PATH.exists():
+        return
+
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    public_key = private_key.public_key()
+
+    PRIVATE_KEY_PATH.write_bytes(
+        private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    PUBLIC_KEY_PATH.write_bytes(
+        public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+
+
+def _read_private_key() -> bytes:
+    _ensure_keypair()
+    return PRIVATE_KEY_PATH.read_bytes()
+
+
+def _read_public_key() -> bytes:
+    _ensure_keypair()
+    return PUBLIC_KEY_PATH.read_bytes()
 
 
 def _decode_launch_token(id_token: str) -> dict:
@@ -111,8 +154,7 @@ def deep_link_submit(id_token: str = Form(...), exam_id: int = Form(...), db: Se
         }
 
         # 4. Sign the response payload using our Private RSA Key (RS256)
-        with open("private.key", "rb") as f:
-            private_key = f.read()
+        private_key = _read_private_key()
             
         signed_response = jwt.encode(
             response_payload, 
@@ -521,6 +563,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 OIDC_SESSIONS = {}
 
+
 @router.api_route("/login", methods=["GET", "POST"])
 async def oidc_login(request: Request):
     """
@@ -581,8 +624,7 @@ def jwks():
     from jwt.algorithms import RSAAlgorithm
     import json
     
-    with open("public.key", "rb") as f:
-        public_key = serialization.load_pem_public_key(f.read())
+    public_key = serialization.load_pem_public_key(_read_public_key())
         
     jwk_str = RSAAlgorithm.to_jwk(public_key)
     if isinstance(jwk_str, str):
