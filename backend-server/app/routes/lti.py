@@ -4,8 +4,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import json
 import jwt
+import base64
+import hashlib
 import time
 from pathlib import Path
+from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
@@ -430,29 +433,75 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
         custom_params = payload.get("https://purl.imsglobal.org/spec/lti/claim/custom", {})
         exam_id_str = custom_params.get("exam_id")
         exam_id = int(exam_id_str) if exam_id_str and exam_id_str.isdigit() else None
+
+        exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+        if not exam:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+
+        now = datetime.now(timezone.utc)
         
-        # Create a new exam session record
-        db_session = models.ExamSession(
-            context_id=context_id,
-            resource_link_id=resource_link_id,
-            user_id=user_id,
-            exam_id=exam_id,
-            raw_jwt=id_token,
-            lti_user_sub=user_id,
-            lti_issuer=issuer,
-            lti_client_id=client_id,
-            lti_deployment_id=deployment_id,
-            ags_lineitem_url=ags_lineitem_url,
-            ags_lineitems_url=ags_lineitems_url,
-            ags_scopes_json=json.dumps(ags_scopes),
-            status="initialized"
+        existing_session = (
+            db.query(models.ExamSession)
+            .filter(
+                models.ExamSession.context_id == context_id,
+                models.ExamSession.resource_link_id == resource_link_id,
+                models.ExamSession.user_id == user_id,
+                models.ExamSession.exam_id == exam_id,
+                models.ExamSession.status != "submitted",
+            )
+            .order_by(models.ExamSession.updated_at.desc().nullslast(), models.ExamSession.id.desc())
+            .first()
         )
-        db.add(db_session)
-        db.commit()
-        db.refresh(db_session)
+
+        if existing_session:
+            if existing_session.started_at is None:
+                existing_session.started_at = now
+            if existing_session.duration is None:
+                existing_session.duration = (exam.duration or 0) * 60
+            existing_session.updated_at = now
+            db.commit()
+            db.refresh(existing_session)
+            db_session = existing_session
+        else:
+            # Create a new exam session record
+            db_session = models.ExamSession(
+                context_id=context_id,
+                resource_link_id=resource_link_id,
+                user_id=user_id,
+                exam_id=exam_id,
+                raw_jwt=id_token,
+                lti_user_sub=user_id,
+                lti_issuer=issuer,
+                lti_client_id=client_id,
+                lti_deployment_id=deployment_id,
+                ags_lineitem_url=ags_lineitem_url,
+                ags_lineitems_url=ags_lineitems_url,
+                ags_scopes_json=json.dumps(ags_scopes),
+                started_at=now,
+                duration=(exam.duration or 0) * 60,
+                status="initialized"
+            )
+            db.add(db_session)
+            db.commit()
+            db.refresh(db_session)
+
+        cache_seed_material = "|".join(
+            [
+                str(db_session.id),
+                str(exam_id),
+                str(context_id),
+                str(resource_link_id),
+                str(user_id),
+                str(issuer or ""),
+                str(client_id or ""),
+                str(deployment_id or ""),
+                id_token,
+            ]
+        )
+        cache_seed = base64.urlsafe_b64encode(hashlib.sha256(cache_seed_material.encode("utf-8")).digest()).decode("ascii").rstrip("=")
         
         # Render a simple HTML response for the IDE inside the iFrame
-        proctoride_url = f"proctoride://launch?session_id={db_session.id}&exam_id={exam_id}"
+        proctoride_url = f"proctoride://launch?session_id={db_session.id}&exam_id={exam_id}&cache_seed={cache_seed}"
         
         html_content = f"""
         <html>

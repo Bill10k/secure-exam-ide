@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from .database import engine, Base
-from .routes import lti, submissions, questions, exams, admin
+from .routes import lti, submissions, questions, exams, admin, snapshots
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -36,6 +36,8 @@ _add_sqlite_column("exam_sessions", "ags_grading_user_override", "ags_grading_us
 _add_sqlite_column("exam_sessions", "ags_push_status", "ags_push_status VARCHAR DEFAULT 'not_synced'")
 _add_sqlite_column("exam_sessions", "ags_last_push_message", "ags_last_push_message TEXT")
 _add_sqlite_column("exam_sessions", "ags_last_pushed_at", "ags_last_pushed_at DATETIME")
+_add_sqlite_column("exam_sessions", "started_at", "started_at DATETIME")
+_add_sqlite_column("exam_sessions", "duration", "duration INTEGER")
 _add_sqlite_column("submissions", "session_id", "session_id INTEGER")
 
 app = FastAPI(title="Secure Exam IDE API")
@@ -56,6 +58,7 @@ app.include_router(submissions.router)
 app.include_router(questions.router)
 app.include_router(exams.router)
 app.include_router(admin.router)
+app.include_router(snapshots.router)
 
 @app.get("/")
 def read_root():

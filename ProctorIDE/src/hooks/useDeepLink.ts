@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { invoke } from "@tauri-apps/api/core";
 
-type DeepLinkHandler = (sessionId: number, examId: number) => void;
+type DeepLinkHandler = (sessionId: number, examId: number, cacheSeed?: string) => void;
 
 function parseLaunchUrl(urlStr: string) {
   try {
     const url = new URL(urlStr);
     const sessionId = url.searchParams.get("session_id");
     const examId = url.searchParams.get("exam_id");
+    const cacheSeed = url.searchParams.get("cache_seed");
 
     if (!sessionId || !examId) {
       console.warn("[useDeepLink] Ignoring launch URL without session/exam ids", urlStr);
@@ -23,7 +24,7 @@ function parseLaunchUrl(urlStr: string) {
       return null;
     }
 
-    return { sessionId: parsedSessionId, examId: parsedExamId };
+    return { sessionId: parsedSessionId, examId: parsedExamId, cacheSeed };
   } catch (error) {
     console.error("[useDeepLink] Failed to parse launch URL", error);
     return null;
@@ -58,7 +59,7 @@ export function useDeepLink(onReceive: DeepLinkHandler) {
       }
 
       console.log("[useDeepLink] Dispatching launch", launch);
-      callbackRef.current(launch.sessionId, launch.examId);
+      callbackRef.current(launch.sessionId, launch.examId, launch.cacheSeed ?? undefined);
     };
 
     invoke<string[]>("get_cli_args")
