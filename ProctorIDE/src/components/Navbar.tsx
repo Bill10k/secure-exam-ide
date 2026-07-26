@@ -1,6 +1,6 @@
 import Timer from './Timer'
 
-function Navbar() {
+function Navbar({ remainingSeconds = 0 }: { remainingSeconds?: number }) {
   return (
 
 <nav className="relative w-full bg-gray-800/50">
@@ -19,7 +19,7 @@ function Navbar() {
 
       {/* Timer - right aligned */}
       <div className="flex-1 flex justify-end items-center">
-        <Timer time={{ hours: 1 }} />
+        <Timer remainingSeconds={remainingSeconds} />
       </div>
 
     </div>

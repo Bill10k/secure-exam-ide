@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -49,11 +49,14 @@ class ExamSession(Base):
     ags_push_status = Column(String, default="not_synced")
     ags_last_push_message = Column(Text, nullable=True)
     ags_last_pushed_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    duration = Column(Integer, nullable=True) # in seconds
     status = Column(String, default="initialized") # initialized, started, submitted
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     submissions = relationship("Submission", back_populates="session")
+    code_snapshots = relationship("CodeSnapshot", back_populates="session")
 
 class Exam(Base):
     __tablename__ = "exams"
@@ -100,6 +103,25 @@ class Question(Base):
     exam = relationship("Exam", back_populates="questions")
     test_cases = relationship("TestCase", back_populates="question")
     submissions = relationship("Submission", back_populates="question")
+    code_snapshots = relationship("CodeSnapshot", back_populates="question")
+
+class CodeSnapshot(Base):
+    __tablename__ = "code_snapshots"
+
+    snapshot_id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey('exam_sessions.id'), nullable=False)
+    question_id = Column(Integer, ForeignKey('questions.question_id'), nullable=False)
+    code = Column(Text, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    saved_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "question_id", "version", name="uq_code_snapshots_session_question_version"),
+        Index("idx_code_snapshots_session_id", "session_id"),
+    )
+
+    session = relationship("ExamSession", back_populates="code_snapshots")
+    question = relationship("Question", back_populates="code_snapshots")
 
 class TestCase(Base):
     __tablename__ = "test_cases"

@@ -4,7 +4,8 @@ interface AuthContextType {
   examStarted: boolean;
   sessionId: number | null;
   examId: number | null;
-  startExam: (sessionId: number, examId: number) => void;
+  cacheSeed: string | null;
+  startExam: (sessionId: number, examId: number, cacheSeed?: string) => void;
   endExam: () => void;
 }
 
@@ -14,11 +15,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [examStarted, setExamStarted] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [examId, setExamId] = useState<number | null>(null);
+  const [cacheSeed, setCacheSeed] = useState<string | null>(null);
 
-  const startExam = (nextSessionId: number, nextExamId: number) => {
+  const startExam = (nextSessionId: number, nextExamId: number, nextCacheSeed?: string) => {
     console.log("[Auth] Starting exam", { sessionId: nextSessionId, examId: nextExamId });
     setSessionId(nextSessionId);
     setExamId(nextExamId);
+    setCacheSeed(nextCacheSeed ?? null);
     setExamStarted(true);
   };
 
@@ -26,11 +29,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     console.log("[Auth] Ending exam");
     setSessionId(null);
     setExamId(null);
+    setCacheSeed(null);
     setExamStarted(false);
   };
 
   return (
-    <AuthContext.Provider value={{ examStarted, sessionId, examId, startExam, endExam }}>
+    <AuthContext.Provider value={{ examStarted, sessionId, examId, cacheSeed, startExam, endExam }}>
       {children}
     </AuthContext.Provider>
   );

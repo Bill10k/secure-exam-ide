@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use tauri::Manager;
 
+mod cache;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -41,7 +43,17 @@ pub fn run() {
         })
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, get_cli_args])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            get_cli_args,
+            cache::cache_snapshot,
+            cache::cache_hydrate_payload,
+            cache::load_cached_hydrate_payload,
+            cache::queue_pending_submission,
+            cache::list_pending_submissions,
+            cache::increment_pending_submission_retry,
+            cache::mark_pending_submission_synced,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -3,47 +3,356 @@ import Navbar from "./Navbar"
 import QuestionPanel from "./QuestionTab"
 import CodeEditor from "./CodeEditor"
 import { useAuth } from "../context/AuthContext"
+import { getCurrentWindow } from "@tauri-apps/api/window"
+import { invoke } from "@tauri-apps/api/core"
+
+type HydrateQuestion = {
+  question_id: number
+  title: string
+  description: string
+  diff_level: number
+  default_code?: string | null
+  snapshot?: {
+    code: string
+    version: number
+    saved_at: string
+  } | null
+}
+
+type SnapshotPayload = {
+  questionId: number
+  code: string
+  version: number
+}
+
+type SnapshotResponse = {
+  saved: boolean
+  version: number
+  saved_at: string
+}
+
+type PendingSubmissionEntry = {
+  id: number
+  session_id: number
+  question_id: number
+  payload: string
+  synced: boolean
+  retry_count: number
+  created_at: string
+}
 
 function Environment() {
-  const { sessionId, examId } = useAuth()
+  const { sessionId, examId, cacheSeed } = useAuth()
   const [examState, setExamState] = useState<any>(null)
   
   const [leftWidth, setLeftWidth] = useState(45) // percentage
   const [code, setCode] = useState<string | undefined>("# Write your Python code here...\n")
   const [customInput, setCustomInput] = useState<string>("")
   const [activeQuestionId, setActiveQuestionId] = useState<number>(1)
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(0)
   const terminalRef = useRef<any>(null)
+  const questionCodesRef = useRef<Record<number, string>>({})
+  const questionVersionsRef = useRef<Record<number, number>>({})
+  const lastSavedCodeRef = useRef<Record<number, string>>({})
+  const autosaveTimerRef = useRef<number | null>(null)
+  const saveQueueRef = useRef(Promise.resolve())
+  const closingRef = useRef(false)
+  const activeQuestionIdRef = useRef(activeQuestionId)
+  const retryingPendingRef = useRef(false)
+
+  const SNAPSHOT_FLUSH_INTERVAL_MS = 2 * 60 * 1000
 
   const [loading, setLoading] = useState(true)
 const [error, setError] = useState<string | null>(null)
 
+const applyHydrateData = useCallback((data: any) => {
+  if (!data || !Array.isArray(data.questions)) {
+    throw new Error("Hydrate response missing questions[]")
+  }
+
+  setExamState(data)
+  if (typeof data.remaining_seconds === "number") {
+    setRemainingSeconds(data.remaining_seconds)
+  }
+
+  const hydratedQuestions = data.questions as HydrateQuestion[]
+  const nextCodes: Record<number, string> = {}
+  const nextVersions: Record<number, number> = {}
+
+  hydratedQuestions.forEach((question) => {
+    const initialCode = question.snapshot?.code ?? question.default_code ?? ""
+    nextCodes[question.question_id] = initialCode
+    nextVersions[question.question_id] = question.snapshot?.version ?? 1
+  })
+
+  questionCodesRef.current = nextCodes
+  questionVersionsRef.current = nextVersions
+  lastSavedCodeRef.current = { ...nextCodes }
+
+  if (hydratedQuestions.length > 0) {
+    const firstQuestion = hydratedQuestions[0]
+    setActiveQuestionId(firstQuestion.question_id)
+    setCode(nextCodes[firstQuestion.question_id])
+  }
+}, [])
+
+useEffect(() => {
+  activeQuestionIdRef.current = activeQuestionId
+}, [activeQuestionId])
+
+const clearAutosaveTimer = useCallback(() => {
+  if (autosaveTimerRef.current !== null) {
+    window.clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = null
+  }
+}, [])
+
+const getSnapshotPayload = useCallback((questionId: number): SnapshotPayload => {
+  return {
+    questionId,
+    code: questionCodesRef.current[questionId] ?? "",
+    version: questionVersionsRef.current[questionId] ?? 1,
+  }
+}, [])
+
+const persistSnapshot = useCallback((payload: SnapshotPayload, keepalive = false) => {
+  if (!sessionId) return Promise.resolve(false)
+
+  const execute = async () => {
+    const currentSavedCode = lastSavedCodeRef.current[payload.questionId]
+    const currentVersion = questionVersionsRef.current[payload.questionId] ?? 1
+    if (currentSavedCode === payload.code && currentVersion === payload.version) {
+      return false
+    }
+
+    const response = await fetch("http://127.0.0.1:8000/snapshots/save", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        question_id: payload.questionId,
+        code: payload.code,
+        version: payload.version,
+      }),
+      ...(keepalive ? { keepalive: true } : {}),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Snapshot save failed: ${response.status}`)
+    }
+
+    const result = await response.json() as SnapshotResponse
+    questionVersionsRef.current[payload.questionId] = result.version
+    lastSavedCodeRef.current[payload.questionId] = payload.code
+    if (cacheSeed) {
+      void invoke("cache_snapshot", {
+        cacheSeed,
+        sessionId,
+        questionId: payload.questionId,
+        code: payload.code,
+        version: result.version,
+        savedAt: result.saved_at,
+      }).catch((cacheError) => {
+        console.error("[Environment] Failed to cache snapshot locally", cacheError)
+      })
+    }
+    return true
+  }
+
+  const nextSave = saveQueueRef.current.then(execute, execute)
+  saveQueueRef.current = nextSave.then(
+    () => undefined,
+    () => undefined,
+  )
+  return nextSave
+}, [cacheSeed, sessionId])
+
+const scheduleAutosave = useCallback((questionId: number) => {
+  clearAutosaveTimer()
+  autosaveTimerRef.current = window.setTimeout(() => {
+    autosaveTimerRef.current = null
+    void persistSnapshot(getSnapshotPayload(questionId))
+  }, 5000)
+}, [clearAutosaveTimer, getSnapshotPayload, persistSnapshot])
+
+const flushAutosave = useCallback((questionId: number, keepalive = false) => {
+  clearAutosaveTimer()
+  return persistSnapshot(getSnapshotPayload(questionId), keepalive)
+}, [clearAutosaveTimer, getSnapshotPayload, persistSnapshot])
+
 useEffect(() => {
   if (!sessionId || !examId) return
 
+  const intervalId = window.setInterval(() => {
+    void flushAutosave(activeQuestionIdRef.current)
+  }, SNAPSHOT_FLUSH_INTERVAL_MS)
+
+  return () => {
+    window.clearInterval(intervalId)
+  }
+}, [examId, flushAutosave, sessionId])
+
+const savePendingSubmissionLocally = useCallback(async (submissionPayload: Record<string, any>) => {
+  if (!sessionId || !cacheSeed) return null
+
+  return invoke<number>("queue_pending_submission", {
+    cacheSeed,
+    sessionId,
+    questionId: submissionPayload.question_id,
+    payloadJson: JSON.stringify(submissionPayload),
+  })
+}, [cacheSeed, sessionId])
+
+const retryPendingSubmissions = useCallback(async () => {
+  if (!sessionId || !cacheSeed || retryingPendingRef.current) return
+  if (!navigator.onLine) return
+
+  retryingPendingRef.current = true
+  try {
+    const pendingSubmissions = await invoke<PendingSubmissionEntry[]>("list_pending_submissions", {
+      cacheSeed,
+    })
+
+    for (const pending of pendingSubmissions) {
+      try {
+        await invoke("increment_pending_submission_retry", { id: pending.id })
+        const submissionPayload = JSON.parse(pending.payload)
+        const response = await fetch("http://localhost:8000/submissions/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(submissionPayload),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Retry failed: ${response.status}`)
+        }
+
+        await invoke("mark_pending_submission_synced", { id: pending.id })
+      } catch (error) {
+        console.error("[Environment] Pending submission retry failed", error)
+      }
+    }
+  } finally {
+    retryingPendingRef.current = false
+  }
+}, [cacheSeed, sessionId])
+
+useEffect(() => {
+  if (!sessionId || !examId) return
+
+  let cancelled = false
+
+  const loadExam = async () => {
   setLoading(true)
   setError(null)
 
-  fetch(`http://127.0.0.1:8000/exams/session/${sessionId}/hydrate`)
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`Hydrate failed: ${res.status}`)
-      return res.json()
-    })
-    .then((data) => {
-      if (!data || !Array.isArray(data.questions)) {
-        throw new Error("Hydrate response missing questions[]")
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/exams/session/${sessionId}/hydrate`)
+      if (!response.ok) throw new Error(`Hydrate failed: ${response.status}`)
+
+      const data = await response.json()
+      applyHydrateData(data)
+      if (cacheSeed) {
+        void invoke("cache_hydrate_payload", {
+          cacheSeed,
+          sessionId,
+          payloadJson: JSON.stringify(data),
+        }).catch((cacheError) => {
+          console.error("[Environment] Failed to cache hydrate payload", cacheError)
+        })
       }
-      setExamState(data)
-      if (data.questions.length > 0) {
-        setActiveQuestionId(data.questions[0].question_id)
-        if (data.questions[0].default_code) setCode(data.questions[0].default_code)
-      }
-    })
-    .catch((err) => {
+      return
+    } catch (err) {
       console.error("[Environment] Error fetching exam data", err)
-      setError(err.message || "Failed to load exam")
-    })
-    .finally(() => setLoading(false))
-}, [sessionId, examId])
+      try {
+        if (!cacheSeed) {
+          throw err
+        }
+
+        const cachedPayload = await invoke<string | null>("load_cached_hydrate_payload", {
+          cacheSeed,
+          sessionId,
+        })
+
+        if (!cachedPayload) {
+          throw err
+        }
+
+        applyHydrateData(JSON.parse(cachedPayload))
+      } catch (cacheError) {
+        console.error("[Environment] Error restoring cached exam data", cacheError)
+        setError((err as Error).message || "Failed to load exam")
+      }
+    } finally {
+      if (!cancelled) {
+        setLoading(false)
+      }
+    }
+  }
+
+  void loadExam()
+
+  return () => {
+    cancelled = true
+  }
+}, [cacheSeed, sessionId, examId])
+
+useEffect(() => {
+  const appWindow = getCurrentWindow()
+  let unlistenClose: (() => void) | undefined
+
+  const registerCloseHandler = async () => {
+    try {
+      unlistenClose = await appWindow.onCloseRequested(async (event) => {
+        if (closingRef.current) {
+          return
+        }
+
+        closingRef.current = true
+
+        try {
+          event.preventDefault()
+          await flushAutosave(activeQuestionIdRef.current, true)
+        } finally {
+          await appWindow.destroy()
+        }
+      })
+    } catch (error) {
+      console.error("[Environment] Failed to register close handler", error)
+    }
+  }
+
+  void registerCloseHandler()
+
+  const handleBeforeUnload = () => {
+    flushAutosave(activeQuestionIdRef.current, true)
+  }
+
+  window.addEventListener("beforeunload", handleBeforeUnload)
+
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload)
+    clearAutosaveTimer()
+    if (unlistenClose) {
+      void unlistenClose()
+    }
+  }
+}, [clearAutosaveTimer, flushAutosave])
+
+const handleQuestionChange = useCallback((nextQuestionId: number) => {
+  if (nextQuestionId === activeQuestionIdRef.current) return
+
+  flushAutosave(activeQuestionIdRef.current)
+  setActiveQuestionId(nextQuestionId)
+  setCode(questionCodesRef.current[nextQuestionId] ?? "")
+}, [flushAutosave])
+
+const handleCodeChange = useCallback((val: string | undefined) => {
+  const nextCode = val ?? ""
+  setCode(nextCode)
+  questionCodesRef.current[activeQuestionIdRef.current] = nextCode
+  scheduleAutosave(activeQuestionIdRef.current)
+}, [scheduleAutosave])
 
 
 
@@ -52,6 +361,7 @@ useEffect(() => {
     const term = terminalRef.current;
     
     console.log("[Environment] Running code", { questionId: activeQuestionId })
+    flushAutosave(activeQuestionId)
     term.writeln("\x1b[33m\r\nRunning code...\x1b[0m");
     
     try {
@@ -86,20 +396,34 @@ useEffect(() => {
     const term = terminalRef.current;
     
     console.log("[Environment] Submitting code", { questionId: activeQuestionId })
+    void flushAutosave(activeQuestionId)
     term.writeln("\x1b[34m\r\nSubmitting code for grading...\x1b[0m");
+
+    const submissionPayload = {
+      code: code || "",
+      language: "python",
+      question_id: activeQuestionId,
+      session_id: sessionId,
+    }
+
+    const pendingSubmissionId = await savePendingSubmissionLocally(submissionPayload).catch((cacheError) => {
+      console.error("[Environment] Failed to queue pending submission", cacheError)
+      return null
+    })
     
     try {
       const response = await fetch("http://localhost:8000/submissions/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: code || "",
-          language: "python",
-          question_id: activeQuestionId 
-        })
+        body: JSON.stringify(submissionPayload)
       });
       
       const result = await response.json();
+
+      // Mark the queued submission as synced after a successful backend save.
+      if (pendingSubmissionId !== null) {
+        await invoke("mark_pending_submission_synced", { id: pendingSubmissionId })
+      }
       
       term.writeln(`Status: ${result.status === "passed" ? "\x1b[32mPassed\x1b[0m" : "\x1b[31mFailed\x1b[0m"} (${result.score}%)`);
       if (result.feedback) {
@@ -131,6 +455,17 @@ useEffect(() => {
     document.addEventListener("mouseup", onMouseUp)
   }, [leftWidth])
 
+  useEffect(() => {
+    void retryPendingSubmissions()
+
+    const handleOnline = () => {
+      void retryPendingSubmissions()
+    }
+
+    window.addEventListener("online", handleOnline)
+    return () => window.removeEventListener("online", handleOnline)
+  }, [retryPendingSubmissions])
+
   // if (!examState) return <div className="h-screen w-full bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>;
 if (loading) {
   return <div className="h-screen w-full bg-gray-900 text-white flex items-center justify-center">Loading Exam Environment...</div>
@@ -141,7 +476,7 @@ if (error) {
   return (
     <div className="w-full h-screen flex flex-col overflow-hidden">
 
-      <Navbar />
+      <Navbar remainingSeconds={remainingSeconds} />
 
       <div className="flex flex-row flex-1 overflow-hidden">
 
@@ -149,7 +484,7 @@ if (error) {
           style={{ width: `${leftWidth}%` }}
           className="shrink-0 bg-gray-700 flex flex-col overflow-y-auto"
         >
-           <QuestionPanel questions={examState.questions} activeId={activeQuestionId} setActiveId={setActiveQuestionId} />
+            <QuestionPanel questions={examState.questions} activeId={activeQuestionId} setActiveId={handleQuestionChange} />
         </aside>
 
         <div
@@ -163,7 +498,7 @@ if (error) {
         >
           <CodeEditor 
             value={code} 
-            onChange={(val) => setCode(val)}
+            onChange={handleCodeChange}
             inputValue={customInput}
             onInputChange={setCustomInput}
             onRun={handleRun}

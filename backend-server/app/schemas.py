@@ -53,6 +53,10 @@ class QuestionResponse(QuestionBase):
     class Config:
         from_attributes = True
 
+
+class QuestionHydrateResponse(QuestionResponse):
+    snapshot: Optional["CodeSnapshotHydrateResponse"] = None
+
 # TestCase
 class TestCaseBase(BaseModel):
     input_data: str
@@ -103,3 +107,35 @@ class SubmissionResponse(BaseModel):
     status: str
     score: float
     feedback: str
+
+
+# Code Snapshot
+class CodeSnapshotSaveRequest(BaseModel):
+    session_id: int
+    question_id: int
+    code: str
+    version: int
+
+
+class CodeSnapshotSaveResponse(BaseModel):
+    saved: bool
+    version: int
+    saved_at: datetime
+
+
+class CodeSnapshotResponse(BaseModel):
+    question_id: int
+    code: str
+    version: int
+    saved_at: datetime
+
+
+class CodeSnapshotHydrateResponse(BaseModel):
+    code: str
+    version: int
+    saved_at: datetime
+
+
+class ExamHydrateResponse(ExamResponse):
+    remaining_seconds: int
+    questions: List[QuestionHydrateResponse] = []

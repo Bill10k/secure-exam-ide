@@ -1,18 +1,11 @@
 import { useState, useEffect } from "react";
 
-interface Duration {
-  hours: number;
-  minutes?: number;
-  seconds?: number;
-}
+function Timer({ remainingSeconds }: { remainingSeconds: number }) {
+  const [totalSeconds, setTotalSeconds] = useState(remainingSeconds);
 
-function Timer({ time }: { time: Duration }) {
-  const initialTotalSeconds =
-    (time.hours ?? 0) * 3600 +
-    (time.minutes ?? 0) * 60 +
-    (time.seconds ?? 0);
-
-  const [totalSeconds, setTotalSeconds] = useState(initialTotalSeconds);
+  useEffect(() => {
+    setTotalSeconds(remainingSeconds);
+  }, [remainingSeconds]);
 
   useEffect(() => {
     if (totalSeconds <= 0) return;

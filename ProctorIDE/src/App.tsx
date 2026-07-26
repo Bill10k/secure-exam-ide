@@ -69,9 +69,9 @@ function App() {
     initializeWindow();
   }, []);
 
-  useDeepLink((sessionId, examId) => {
+  useDeepLink((sessionId, examId, cacheSeed) => {
     console.log("[App] Launch data received", { sessionId, examId });
-    startExam(sessionId, examId);
+    startExam(sessionId, examId, cacheSeed);
   });
 
   const [restrictionsPaused, setRestrictionsPaused] = useState(false);
