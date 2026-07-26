@@ -5,12 +5,14 @@ import OutputBar from './OutputBar';
 
 interface CodeEditorProps {
   value?: string;
+  language?: string;
   onChange?: (value: string | undefined) => void;
   inputValue?: string;
   onInputChange?: (value: string) => void;
   onRun?: () => void;
   onSubmit?: () => void;
   onTerminalInit?: (terminal: any) => void;
+  disabled?: boolean;
 }
 
 
@@ -19,7 +21,7 @@ window.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
-function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit }: CodeEditorProps) {
+function CodeEditor({ value, language = "python", onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit, disabled = false }: CodeEditorProps) {
   const [outputH, setOutputH] = useState(220);
 
   const handleHeightChange = useCallback((h: number) => {
@@ -31,12 +33,16 @@ function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmi
 
   return (
     <div className="h-svh w-full flex flex-col overflow-hidden">
-      <Toolbar onRun={onRun} onSubmit={onSubmit} />
+      <Toolbar
+        onRun={onRun}
+        onSubmit={onSubmit}
+        disabled={disabled}
+      />
 
       <Editor
         height={editorHeight}
         width="100%"
-        defaultLanguage="python"
+        language={language}
         theme="vs-dark"
         value={value}
         onChange={onChange}
@@ -54,10 +60,12 @@ function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmi
           wordWrap: "on",
           cursorBlinking: "smooth",
           smoothScrolling: true,
+          readOnly: disabled,
+          domReadOnly: disabled,
         }}
       />
 
-      <OutputBar onHeightChange={handleHeightChange} onTerminalInit={onTerminalInit} inputValue={inputValue} onInputChange={onInputChange} />
+      <OutputBar onHeightChange={handleHeightChange} onTerminalInit={onTerminalInit} inputValue={inputValue} onInputChange={onInputChange} disabled={disabled} />
     </div>
   );
 }

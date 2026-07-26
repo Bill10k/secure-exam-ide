@@ -155,6 +155,7 @@ class TestCaseResponse(TestCaseBase):
 class ExamBase(BaseModel):
     title: str
     description: str
+    language: str = "python"
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     duration: int
@@ -221,6 +222,10 @@ class CodeSnapshotHydrateResponse(BaseModel):
 
 
 class ExamHydrateResponse(ExamResponse):
+    server_time: datetime
+    session_started_at: datetime
+    session_duration_seconds: int
+    session_ends_at: datetime
     remaining_seconds: int
     questions: List[QuestionHydrateResponse] = Field(default_factory=list)
 

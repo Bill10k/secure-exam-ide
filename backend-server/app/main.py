@@ -43,6 +43,7 @@ _add_sqlite_column("questions", "language", "language VARCHAR DEFAULT 'python'")
 _add_sqlite_column("questions", "functional_weight", "functional_weight FLOAT DEFAULT 80.0")
 _add_sqlite_column("questions", "static_weight", "static_weight FLOAT DEFAULT 20.0")
 _add_sqlite_column("submissions", "session_id", "session_id INTEGER")
+_add_sqlite_column("exams", "language", "language VARCHAR DEFAULT 'python'")
 
 app = FastAPI(title="Secure Exam IDE API")
 

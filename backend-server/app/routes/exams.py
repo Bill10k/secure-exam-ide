@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
 from ..database import get_db
 from ..models import ExamAssignment, Exam, ExamSession, CodeSnapshot
 from .. import schemas
+from ..services.exam_timing import get_session_timing
 
 router = APIRouter(prefix="/exams", tags=["Exams"])
 
@@ -21,19 +21,7 @@ def hydrate_exam_session(session_id: int, db: Session = Depends(get_db)):
     if not exam:
         raise HTTPException(status_code=404, detail="Exam not found")
 
-    now = datetime.now(timezone.utc)
-
-    def _ensure_aware(value: datetime | None) -> datetime | None:
-        if value is None:
-            return None
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
-
-    started_at = _ensure_aware(session.started_at) or _ensure_aware(session.created_at) or now
-    duration_seconds = session.duration if session.duration and session.duration > 0 else (exam.duration or 0) * 60
-    elapsed_seconds = max(int((now - started_at).total_seconds()), 0)
-    remaining_seconds = max(int(duration_seconds) - elapsed_seconds, 0)
+    timing = get_session_timing(session, exam)
 
     snapshots = (
         db.query(CodeSnapshot)
@@ -76,10 +64,15 @@ def hydrate_exam_session(session_id: int, db: Session = Depends(get_db)):
         "exam_id": exam.exam_id,
         "title": exam.title,
         "description": exam.description,
+        "language": exam.language,
         "start_time": exam.start_time,
         "end_time": exam.end_time,
         "duration": exam.duration,
-        "remaining_seconds": remaining_seconds,
+        "server_time": timing["server_time"],
+        "session_started_at": timing["session_started_at"],
+        "session_duration_seconds": timing["session_duration_seconds"],
+        "session_ends_at": timing["session_ends_at"],
+        "remaining_seconds": timing["remaining_seconds"],
         "questions": hydrated_questions,
     }
 

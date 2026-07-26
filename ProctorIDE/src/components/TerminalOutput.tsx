@@ -10,6 +10,11 @@ interface TerminalOutputProps {
 export function TerminalOutput({ onTerminalInit }: TerminalOutputProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
+  const onTerminalInitRef = useRef(onTerminalInit);
+
+  useEffect(() => {
+    onTerminalInitRef.current = onTerminalInit;
+  }, [onTerminalInit]);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -35,8 +40,8 @@ export function TerminalOutput({ onTerminalInit }: TerminalOutputProps) {
 
     xtermRef.current = term;
 
-    if (onTerminalInit) {
-      onTerminalInit(term);
+    if (onTerminalInitRef.current) {
+      onTerminalInitRef.current(term);
     }
 
     // Handle window resize
@@ -49,7 +54,7 @@ export function TerminalOutput({ onTerminalInit }: TerminalOutputProps) {
       window.removeEventListener('resize', handleResize);
       term.dispose();
     };
-  }, [onTerminalInit]);
+  }, []);
 
   return (
     <div

@@ -22,6 +22,7 @@ class FastAPIRequestAdapter(Request):
         return str(self.request.url)
         
     def get_session(self):
+        print(self.request)
         # Pylti1p3 expects a session dict. FastAPI doesn't have standard session.
         # This will be tricky, normally we implement a simple session or mock.
         return {}

@@ -515,6 +515,7 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
                     a.btn:hover {{ background-color: #1d4ed8; }}
                 </style>
                 <script>
+            
                     // Attempt to launch the deep link automatically
                     window.onload = function() {{
                         window.location.href = "{proctoride_url}";
@@ -656,7 +657,7 @@ async def oidc_login(request: Request):
         params["lti_message_hint"] = lti_message_hint
         
     redirect_url = f"{moodle_auth_url}?{urllib.parse.urlencode(params)}"
-    print(f"REDIRECT URL: {redirect_url}")
+    # print(f"REDIRECT URL: {redirect_url}")
         
     # MUST be 302 or 303 so the browser makes a GET to Moodle's auth.php, not a POST
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
@@ -695,6 +696,7 @@ def create_exam_from_lti(exam_data: dict, db: Session = Depends(get_db)):
     new_exam = models.Exam(
         title=exam_data.get("title"),
         description=exam_data.get("description"),
+        language=exam_data.get("language", "python"),
         duration=exam_data.get("duration", 60),
         status=1,
     )
