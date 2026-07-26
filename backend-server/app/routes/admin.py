@@ -2,26 +2,88 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import verify_admin_role
-from ..models import Question, TestCase, Submission, UserAccount
+from ..models import Exam,Question, QuestionStaticRule,TestCase, Submission, UserAccount
 from ..schemas import QuestionCreate, QuestionResponse, TestCaseCreate, TestCaseResponse
-
+from ..grading.rule_registry import (
+    get_rule_definition,
+    is_rule_supported_for_language,
+)
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(verify_admin_role)])
 
 @router.post("/questions", response_model=QuestionResponse)
-def create_question(question: QuestionCreate, db: Session = Depends(get_db)):
-    """Admin endpoint to create a new programming question."""
+def create_question(
+    question: QuestionCreate,
+    db: Session = Depends(get_db),
+):
+    exam = (
+        db.query(Exam)
+        .filter(Exam.exam_id == question.exam_id)
+        .first()
+    )
+
+    if not exam:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Exam not found.",
+        )
+
+    for rule in question.static_rules:
+        definition = get_rule_definition(rule.rule_type)
+
+        if definition is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown static rule: {rule.rule_type}",
+            )
+
+        if not is_rule_supported_for_language(
+            rule.rule_type,
+            question.language,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Rule '{rule.rule_type}' is not supported "
+                    f"for language '{question.language}'."
+                ),
+            )
+
     new_question = Question(
         exam_id=question.exam_id,
         title=question.title,
         description=question.description,
         diff_level=question.diff_level,
-        default_code=question.default_code
+        default_code=question.default_code,
+        language=question.language,
+        functional_weight=question.functional_weight,
+        static_weight=question.static_weight,
     )
-    db.add(new_question)
-    db.commit()
-    db.refresh(new_question)
-    return new_question
 
+    try:
+        db.add(new_question)
+        db.flush()
+
+        for rule in question.static_rules:
+            db.add(
+                QuestionStaticRule(
+                    question_id=new_question.question_id,
+                    rule_type=rule.rule_type,
+                    expected_value=rule.expected_value,
+                    weight=rule.weight,
+                    required=rule.required,
+                )
+            )
+
+        db.commit()
+        db.refresh(new_question)
+        return new_question
+
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create question.",
+        ) from exc
 @router.post("/testcases", response_model=TestCaseResponse)
 def create_testcase(testcase: TestCaseCreate, db: Session = Depends(get_db)):
     """Admin endpoint to add test cases to a question."""

@@ -1,5 +1,6 @@
 import sys
 import asyncio
+from .grading.routes import router as grading_router
 
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -59,6 +60,7 @@ app.include_router(questions.router)
 app.include_router(exams.router)
 app.include_router(admin.router)
 app.include_router(snapshots.router)
+app.include_router(grading_router)
 
 @app.get("/")
 def read_root():

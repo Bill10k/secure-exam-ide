@@ -90,21 +90,118 @@ class ExamAssignment(Base):
 
 class Question(Base):
     __tablename__ = "questions"
-    
-    question_id = Column(Integer, primary_key=True, index=True)
-    exam_id = Column(Integer, ForeignKey('exams.exam_id'))
-    title = Column(String)
-    description = Column(Text)
-    diff_level = Column(Integer)
-    default_code = Column(Text, nullable=True)
-    date_created = Column(DateTime(timezone=True), server_default=func.now())
-    status = Column(Integer, default=1)
-    
-    exam = relationship("Exam", back_populates="questions")
-    test_cases = relationship("TestCase", back_populates="question")
-    submissions = relationship("Submission", back_populates="question")
-    code_snapshots = relationship("CodeSnapshot", back_populates="question")
 
+    question_id = Column(Integer, primary_key=True, index=True)
+    exam_id = Column(
+        Integer,
+        ForeignKey("exams.exam_id"),
+        nullable=False,
+    )
+
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    diff_level = Column(Integer)
+
+    language = Column(
+        String,
+        default="python",
+        nullable=False,
+    )
+
+    default_code = Column(Text, nullable=True)
+
+    functional_weight = Column(
+        Float,
+        default=80.0,
+        nullable=False,
+    )
+
+    static_weight = Column(
+        Float,
+        default=20.0,
+        nullable=False,
+    )
+
+    date_created = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+    status = Column(Integer, default=1)
+
+    exam = relationship(
+        "Exam",
+        back_populates="questions",
+    )
+
+    test_cases = relationship(
+        "TestCase",
+        back_populates="question",
+        cascade="all, delete-orphan",
+    )
+
+    submissions = relationship(
+        "Submission",
+        back_populates="question",
+    )
+
+    code_snapshots = relationship(
+        "CodeSnapshot",
+        back_populates="question",
+    )
+
+    static_rules = relationship(
+        "QuestionStaticRule",
+        back_populates="question",
+        cascade="all, delete-orphan",
+    )
+
+
+class QuestionStaticRule(Base):
+    __tablename__ = "question_static_rules"
+
+    rule_id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    question_id = Column(
+        Integer,
+        ForeignKey(
+            "questions.question_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    rule_type = Column(
+        String,
+        nullable=False,
+    )
+
+    expected_value = Column(
+        Text,
+        nullable=True,
+    )
+
+    weight = Column(
+        Float,
+        default=1.0,
+        nullable=False,
+    )
+
+    required = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    question = relationship(
+        "Question",
+        back_populates="static_rules",
+    )
 class CodeSnapshot(Base):
     __tablename__ = "code_snapshots"
 

@@ -255,6 +255,8 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                                             <option value="2">2 - Medium</option>
                                             <option value="3">3 - Hard</option>
                                         </select>
+                                        
+                                
                                     </div>
                                 </div>
                                 <div>
