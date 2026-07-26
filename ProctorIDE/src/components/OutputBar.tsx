@@ -43,13 +43,14 @@ function TerminalContent({ onTerminalInit }: { onTerminalInit?: (terminal: any) 
   );
 }
 
-function InputContent({ value, onChange }: { value: string, onChange: (val: string) => void }) {
+function InputContent({ value, onChange, disabled }: { value: string, onChange: (val: string) => void, disabled: boolean }) {
   return (
     <div className="flex-1 flex flex-col h-full bg-[#1e1e1e] p-2">
       <div className="text-gray-400 text-xs mb-1 ml-1 tracking-wider uppercase">Custom Input (Stdin)</div>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         className="flex-1 w-full bg-[#1e1e1e] text-gray-300 font-mono text-sm p-2 outline-none border border-gray-700 rounded resize-none"
         placeholder="Enter input text here. It will be passed using standard input (stdin) when 'Run' is pressed."
         spellCheck={false}
@@ -72,9 +73,10 @@ interface OutputBarProps {
   onTerminalInit?: (terminal: any) => void;
   inputValue?: string;
   onInputChange?: (val: string) => void;
+  disabled?: boolean;
 }
 
-export default function OutputBar({ onHeightChange, onTerminalInit, inputValue = "", onInputChange }: OutputBarProps) {
+export default function OutputBar({ onHeightChange, onTerminalInit, inputValue = "", onInputChange, disabled = false }: OutputBarProps) {
   const [activeTab,  setActiveTab]  = useState<TabId>("terminal");
   const [collapsed,  setCollapsed]  = useState(false);
   const [panelH,     setPanelH]     = useState(DEFAULT_H);
@@ -178,7 +180,7 @@ export default function OutputBar({ onHeightChange, onTerminalInit, inputValue =
       {/* content — always in DOM, overflow-hidden hides it when collapsed */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === "terminal" && <TerminalContent onTerminalInit={onTerminalInit} />}
-        {activeTab === "input" && <InputContent value={inputValue} onChange={onInputChange || (() => {})} />}
+        {activeTab === "input" && <InputContent value={inputValue} onChange={onInputChange || (() => {})} disabled={disabled} />}
        
       </div>
     </div>

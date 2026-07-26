@@ -11,6 +11,7 @@ interface CodeEditorProps {
   onRun?: () => void;
   onSubmit?: () => void;
   onTerminalInit?: (terminal: any) => void;
+  disabled?: boolean;
 }
 
 
@@ -19,7 +20,7 @@ window.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
-function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit }: CodeEditorProps) {
+function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit, disabled = false }: CodeEditorProps) {
   const [outputH, setOutputH] = useState(220);
 
   const handleHeightChange = useCallback((h: number) => {
@@ -31,7 +32,7 @@ function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmi
 
   return (
     <div className="h-svh w-full flex flex-col overflow-hidden">
-      <Toolbar onRun={onRun} onSubmit={onSubmit} />
+      <Toolbar onRun={onRun} onSubmit={onSubmit} disabled={disabled} />
 
       <Editor
         height={editorHeight}
@@ -54,10 +55,12 @@ function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmi
           wordWrap: "on",
           cursorBlinking: "smooth",
           smoothScrolling: true,
+          readOnly: disabled,
+          domReadOnly: disabled,
         }}
       />
 
-      <OutputBar onHeightChange={handleHeightChange} onTerminalInit={onTerminalInit} inputValue={inputValue} onInputChange={onInputChange} />
+      <OutputBar onHeightChange={handleHeightChange} onTerminalInit={onTerminalInit} inputValue={inputValue} onInputChange={onInputChange} disabled={disabled} />
     </div>
   );
 }

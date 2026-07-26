@@ -1,5 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 
 mod cache;
 
@@ -11,6 +11,11 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn get_cli_args() -> Vec<String> {
     std::env::args().collect()
+}
+
+#[tauri::command]
+fn force_exit_app(app_handle: AppHandle) {
+    app_handle.exit(0);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -46,6 +51,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_cli_args,
+            force_exit_app,
             cache::cache_snapshot,
             cache::cache_hydrate_payload,
             cache::load_cached_hydrate_payload,
