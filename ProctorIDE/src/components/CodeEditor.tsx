@@ -5,6 +5,9 @@ import OutputBar from './OutputBar';
 
 interface CodeEditorProps {
   value?: string;
+  language?: string;
+  selectedLanguage?: string;
+  onLanguageChange?: (language: string) => void;
   onChange?: (value: string | undefined) => void;
   inputValue?: string;
   onInputChange?: (value: string) => void;
@@ -19,7 +22,7 @@ window.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
-function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit }: CodeEditorProps) {
+function CodeEditor({ value, language = "python", selectedLanguage = "python", onLanguageChange, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit }: CodeEditorProps) {
   const [outputH, setOutputH] = useState(220);
 
   const handleHeightChange = useCallback((h: number) => {
@@ -31,12 +34,17 @@ function CodeEditor({ value, onChange, inputValue, onInputChange, onRun, onSubmi
 
   return (
     <div className="h-svh w-full flex flex-col overflow-hidden">
-      <Toolbar onRun={onRun} onSubmit={onSubmit} />
+      <Toolbar
+        onRun={onRun}
+        onSubmit={onSubmit}
+        selectedLanguage={selectedLanguage}
+        onLanguageChange={onLanguageChange}
+      />
 
       <Editor
         height={editorHeight}
         width="100%"
-        defaultLanguage="python"
+        language={language}
         theme="vs-dark"
         value={value}
         onChange={onChange}

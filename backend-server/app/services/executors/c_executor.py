@@ -1,8 +1,6 @@
 from .base import LanguageExecutor
 
-
 class CExecutor(LanguageExecutor):
-
     extension = ".c"
 
     def build_command(self):

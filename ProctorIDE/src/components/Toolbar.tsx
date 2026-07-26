@@ -5,9 +5,18 @@ type ToolbarState = "idle" | "running" | "debugging" | "submitting";
 interface ToolbarProps {
   onRun?: () => void;
   onSubmit?: () => void;
+  selectedLanguage?: string;
+  onLanguageChange?: (language: string) => void;
 }
 
-function Toolbar({ onRun, onSubmit }: ToolbarProps) {
+const languages = [
+  { value: "python", label: "Python" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "c", label: "C" },
+  { value: "cpp", label: "C++" },
+];
+
+function Toolbar({ onRun, onSubmit, selectedLanguage = "python", onLanguageChange }: ToolbarProps) {
   const [state, setState] = useState<ToolbarState>("idle");
 
   const handleRun = () => {
@@ -120,6 +129,24 @@ function Toolbar({ onRun, onSubmit }: ToolbarProps) {
               {tool.name}
             </button>
           ))}
+        </div>
+
+        <div className="flex items-center gap-2 px-2">
+          <label htmlFor="language-select" className="text-xs text-gray-400 hidden sm:inline">
+            Language
+          </label>
+          <select
+            id="language-select"
+            value={selectedLanguage}
+            onChange={(event) => onLanguageChange?.(event.target.value)}
+            className="bg-gray-800 text-white text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-400"
+          >
+            {languages.map((language) => (
+              <option key={language.value} value={language.value}>
+                {language.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Divider */}

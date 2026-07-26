@@ -63,7 +63,8 @@ function Environment() {
   const SNAPSHOT_FLUSH_INTERVAL_MS = 2 * 60 * 1000
 
   const [loading, setLoading] = useState(true)
-const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedLanguage, setSelectedLanguage] = useState<string>("python")
 
 const applyHydrateData = useCallback((data: any) => {
   if (!data || !Array.isArray(data.questions)) {
@@ -360,7 +361,7 @@ const handleCodeChange = useCallback((val: string | undefined) => {
     if (!terminalRef.current) return;
     const term = terminalRef.current;
     
-    console.log("[Environment] Running code", { questionId: activeQuestionId })
+    console.log("[Environment] Running code", { questionId: activeQuestionId, language: selectedLanguage })
     flushAutosave(activeQuestionId)
     term.writeln("\x1b[33m\r\nRunning code...\x1b[0m");
     
@@ -370,7 +371,7 @@ const handleCodeChange = useCallback((val: string | undefined) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: code || "",
-          language: "python",
+          language: selectedLanguage,
           question_id: activeQuestionId,
           custom_input: customInput
         })
@@ -401,7 +402,7 @@ const handleCodeChange = useCallback((val: string | undefined) => {
 
     const submissionPayload = {
       code: code || "",
-      language: "python",
+      language: selectedLanguage,
       question_id: activeQuestionId,
       session_id: sessionId,
     }
@@ -498,12 +499,15 @@ if (error) {
         >
           <CodeEditor 
             value={code} 
+            language={selectedLanguage}
             onChange={handleCodeChange}
             inputValue={customInput}
             onInputChange={setCustomInput}
             onRun={handleRun}
             onSubmit={handleSubmit}
             onTerminalInit={(term) => { terminalRef.current = term; }}
+            onLanguageChange={setSelectedLanguage}
+            selectedLanguage={selectedLanguage}
           />
         </div>
 

@@ -70,14 +70,28 @@ async def execute_code_docker(code: str, language: str, custom_input: str = "") 
             "--rm",
             "-i",
             "--network", "none",
-            "--memory=128m",
-            "--cpus=0.5",
+            "--memory", "128m",
+            "--cpus", "0.5",
             "--read-only",
-            "--pids-limit=64",
-            "-v",
-            f"{temp_file_path}:{container_file}:ro",
+            "--tmpfs", "/tmp:rw,exec,nosuid,size=64m",
+            "--pids-limit", "64",
+            "-v", f"{temp_file_path}:{container_file}:ro",
             "sandbox-image",
         ]
+        # docker_command = [
+        #     "docker",
+        #     "run",
+        #     "--rm",
+        #     "-i",
+        #     "--network", "none",
+        #     "--memory=128m",
+        #     "--cpus=0.5",
+        #     "--read-only",
+        #     "--pids-limit=64",
+        #     "-v",
+        #     f"{temp_file_path}:{container_file}:ro",
+        #     "sandbox-image",
+        # ]
 
         # Append the language-specific execution command
         docker_command.extend(execution_command)
