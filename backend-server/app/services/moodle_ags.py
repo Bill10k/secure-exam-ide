@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 import jwt
@@ -24,6 +24,88 @@ DEFAULT_AGS_SCOPES = [AGS_SCOPE_LINEITEM, AGS_SCOPE_SCORE]
 def _load_json(url: str) -> dict[str, Any]:
     with urlopen(url, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _origin_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+
+    return urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+
+
+def _dedupe(values: list[str | None]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+
+    return result
+
+
+def _discover_token_endpoint(
+    issuer: str,
+    lineitem_url: str | None,
+    lineitems_url: str | None,
+) -> tuple[str | None, str]:
+    """
+    Resolve the OAuth token endpoint for Moodle AGS.
+
+    Moodle deployments commonly expose LTI endpoints under /mod/lti, while the
+    launch issuer may be only the site origin. Try standards-based discovery
+    first, then Moodle-specific locations on both issuer and AGS URL origins.
+    """
+    origins = _dedupe(
+        [
+            issuer.rstrip("/"),
+            _origin_from_url(lineitem_url),
+            _origin_from_url(lineitems_url),
+        ]
+    )
+
+    discovery_urls = _dedupe(
+        [
+            f"{origin}/.well-known/openid-configuration"
+            for origin in origins
+        ]
+        + [
+            f"{origin}/mod/lti/openid-configuration.php"
+            for origin in origins
+        ]
+    )
+
+    errors: list[str] = []
+    for discovery_url in discovery_urls:
+        try:
+            openid_config = _load_json(discovery_url)
+            token_endpoint = openid_config.get("token_endpoint")
+            if token_endpoint:
+                return token_endpoint, ""
+            errors.append(f"{discovery_url}: missing token_endpoint")
+        except Exception as exc:
+            errors.append(f"{discovery_url}: {exc}")
+
+    token_fallbacks = _dedupe(
+        [
+            f"{origin}/mod/lti/token.php"
+            for origin in origins
+        ]
+    )
+
+    if token_fallbacks:
+        return token_fallbacks[0], (
+            "OIDC discovery failed; using Moodle token endpoint fallback. "
+            f"Tried: {'; '.join(errors)}"
+        )
+
+    return None, "; ".join(errors) if errors else "No Moodle origin available"
 
 
 def _decode_launch(session: ExamSession) -> dict[str, Any]:
@@ -231,19 +313,21 @@ def push_exam_grades_to_moodle(db: Session, exam_id: int) -> dict[str, Any]:
 
         token_endpoint = session.ags_token_endpoint
         if not token_endpoint:
-            openid_config_url = issuer.rstrip("/") + "/.well-known/openid-configuration"
-            try:
-                openid_config = _load_json(openid_config_url)
-                token_endpoint = openid_config.get("token_endpoint")
-                if not token_endpoint:
-                    raise ValueError("Missing token endpoint in openid configuration")
-            except Exception as exc:
+            token_endpoint, discovery_message = _discover_token_endpoint(
+                issuer,
+                lineitem_url,
+                lineitems_url,
+            )
+            if not token_endpoint:
                 session.ags_push_status = "failed"
-                session.ags_last_push_message = f"Unable to load Moodle OIDC config: {exc}"
+                session.ags_last_push_message = f"Unable to load Moodle OIDC config: {discovery_message}"
                 session.ags_last_pushed_at = datetime.now(timezone.utc)
                 failed += 1
                 messages.append(f"Session {session.id}: OIDC config error")
                 continue
+            session.ags_token_endpoint = token_endpoint
+            if discovery_message:
+                messages.append(f"Session {session.id}: {discovery_message}")
 
         private_key_path = Path(__file__).resolve().parents[2] / "private.key"
         private_key = private_key_path.read_bytes()
