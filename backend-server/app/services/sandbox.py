@@ -5,6 +5,8 @@ import subprocess
 from sqlalchemy.orm import Session
 from ..models import TestCase
 
+from .language_registry import LANGUAGE_REGISTRY
+
 
 def _run_docker_container(command: list[str], input_data: str = "") -> tuple[str, str, int]:
     """Run the Docker command synchronously in a background thread."""
@@ -31,31 +33,59 @@ async def execute_code_docker(code: str, language: str, custom_input: str = "") 
     """
     Executes code inside the sandbox Docker container with optional custom stdin.
     """
-    if language.lower() != "python":
+
+    executor = LANGUAGE_REGISTRY.get(language.lower())
+
+    if executor is None:
         return {
             "stdout": "",
-            "stderr": f"Language {language} is not supported yet.",
+            "stderr": f"Language '{language}' is not supported.",
             "exit_code": 1,
             "execution_time": 0.0,
         }
 
-    # Create a temporary file to hold the code
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as temp_file:
+    # File extension for the selected language
+    suffix = executor.extension
+
+    # Command to execute inside the container
+    execution_command = executor.build_command()
+
+    # e.g. /app/main.py, /app/main.cpp, /app/main.js
+    container_file = f"/app/main{suffix}"
+
+    # Create temporary source file
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=suffix,
+        delete=False,
+        encoding="utf-8",
+    ) as temp_file:
         temp_file.write(code)
         temp_file_path = temp_file.name
 
     try:
-        command = [
-            'docker', 'run', '--rm', '-i',
-            '--network', 'none',
-            '--memory=128m', '--cpus=0.5',
-            '--read-only', '--pids-limit=64',
-            '-v', f'{temp_file_path}:/app/main.py:ro',
-            'sandbox-image',
+        docker_command = [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "--network", "none",
+            "--memory=128m",
+            "--cpus=0.5",
+            "--read-only",
+            "--pids-limit=64",
+            "-v",
+            f"{temp_file_path}:{container_file}:ro",
+            "sandbox-image",
         ]
 
+        # Append the language-specific execution command
+        docker_command.extend(execution_command)
+
         stdout, stderr, exit_code = await asyncio.to_thread(
-            _run_docker_container, command, custom_input
+            _run_docker_container,
+            docker_command,
+            custom_input,
         )
 
         return {
@@ -68,7 +98,6 @@ async def execute_code_docker(code: str, language: str, custom_input: str = "") 
     finally:
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
-
 
 async def grade_submission_docker(code: str, question_id: int, db: Session) -> dict:
     """

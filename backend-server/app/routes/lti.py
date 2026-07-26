@@ -610,7 +610,7 @@ async def oidc_login(request: Request):
         params["lti_message_hint"] = lti_message_hint
         
     redirect_url = f"{moodle_auth_url}?{urllib.parse.urlencode(params)}"
-    print(f"REDIRECT URL: {redirect_url}")
+    # print(f"REDIRECT URL: {redirect_url}")
         
     # MUST be 302 or 303 so the browser makes a GET to Moodle's auth.php, not a POST
     return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
