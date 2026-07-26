@@ -686,7 +686,8 @@ def jwks():
 
 
 
-from ..schemas import ExamResponse, QuestionResponse, TestCaseResponse
+from ..schemas import ExamResponse, QuestionCreate, QuestionResponse, TestCaseResponse
+from ..grading.rule_registry import is_rule_supported_for_language
 
 @router.post("/api/exam", response_model=ExamResponse)
 def create_exam_from_lti(exam_data: dict, db: Session = Depends(get_db)):
@@ -703,15 +704,45 @@ def create_exam_from_lti(exam_data: dict, db: Session = Depends(get_db)):
     return new_exam
 
 @router.post("/api/question", response_model=QuestionResponse)
-def create_question_from_lti(question_data: dict, db: Session = Depends(get_db)):
+def create_question_from_lti(question_data: QuestionCreate, db: Session = Depends(get_db)):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == question_data.exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    for static_rule in question_data.static_rules:
+        if not is_rule_supported_for_language(static_rule.rule_type, question_data.language):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Rule '{static_rule.rule_type}' is not supported "
+                    f"for language '{question_data.language}'."
+                ),
+            )
+
     new_question = models.Question(
-        exam_id=question_data.get("exam_id"),
-        title=question_data.get("title"),
-        description=question_data.get("description"),
-        diff_level=question_data.get("diff_level", 1),
-        default_code=question_data.get("default_code", "def solution():\n    pass")
+        exam_id=question_data.exam_id,
+        title=question_data.title,
+        description=question_data.description,
+        diff_level=question_data.diff_level,
+        language=question_data.language,
+        functional_weight=question_data.functional_weight,
+        static_weight=question_data.static_weight,
+        default_code=question_data.default_code or "def solution():\n    pass",
     )
     db.add(new_question)
+    db.flush()
+
+    for static_rule in question_data.static_rules:
+        db.add(
+            models.QuestionStaticRule(
+                question_id=new_question.question_id,
+                rule_type=static_rule.rule_type,
+                expected_value=static_rule.expected_value,
+                weight=static_rule.weight,
+                required=static_rule.required,
+            )
+        )
+
     db.commit()
     db.refresh(new_question)
     return new_question

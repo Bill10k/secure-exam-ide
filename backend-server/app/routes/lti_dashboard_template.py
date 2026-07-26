@@ -14,6 +14,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
         <script>
             let currentExamId = null;
             let currentQuestionId = null;
+            let currentRuleDefinitions = [];
 
             function showTab(tabId) {{
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
@@ -49,6 +50,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         document.getElementById('exam-creation-step').classList.add('hidden');
                         document.getElementById('question-creation-step').classList.remove('hidden');
                         document.getElementById('display-exam-title').innerText = "Exam: " + result.title;
+                        loadStaticRules('python');
                     }} else {{
                         alert("Error: " + JSON.stringify(result));
                         btn.disabled = false;
@@ -61,6 +63,135 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                 }}
             }}
 
+            function escapeHtml(value) {{
+                return String(value ?? "")
+                    .replaceAll("&", "&amp;")
+                    .replaceAll("<", "&lt;")
+                    .replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;")
+                    .replaceAll("'", "&#039;");
+            }}
+
+            function setStaticRuleStatus(message, isError = false) {{
+                const status = document.getElementById('static-rule-status');
+                if (!status) return;
+                status.innerText = message;
+                status.className = isError
+                    ? 'text-xs text-red-600 mt-2'
+                    : 'text-xs text-gray-500 mt-2';
+            }}
+
+            async function loadStaticRules(language) {{
+                const panel = document.getElementById('static-rules-panel');
+                currentRuleDefinitions = [];
+                panel.innerHTML = '<div class="text-sm text-gray-500">Loading static-analysis rules...</div>';
+                setStaticRuleStatus('');
+
+                try {{
+                    const res = await fetch('/grading/rules/' + encodeURIComponent(language));
+                    const data = await res.json();
+
+                    if (!res.ok) {{
+                        throw new Error(data.detail || 'Unable to load rules.');
+                    }}
+
+                    currentRuleDefinitions = data.rules || [];
+                    renderStaticRules(currentRuleDefinitions);
+                }} catch (err) {{
+                    panel.innerHTML = '<div class="text-sm text-red-600">Static rules could not be loaded.</div>';
+                    setStaticRuleStatus(err.message || String(err), true);
+                }}
+            }}
+
+            function renderStaticRules(rules) {{
+                const panel = document.getElementById('static-rules-panel');
+
+                if (!rules.length) {{
+                    panel.innerHTML = '<div class="text-sm text-gray-500">No static rules are available for this language.</div>';
+                    return;
+                }}
+
+                panel.innerHTML = rules.map((rule) => {{
+                    const ruleType = escapeHtml(rule.rule_type);
+                    const label = escapeHtml(rule.label || rule.rule_type);
+                    const description = escapeHtml(rule.description || '');
+                    const defaultWeight = Number(rule.default_weight || 1);
+                    let valueInput = '';
+
+                    if (rule.input_type === 'text') {{
+                        valueInput = `
+                            <label class="block text-xs font-medium text-gray-600 mt-3">Expected Value</label>
+                            <input type="text" data-rule-value="${{ruleType}}" class="mt-1 block w-full px-2 py-1.5 border border-gray-300 rounded text-sm" placeholder="e.g. factorial">
+                        `;
+                    }} else if (rule.input_type === 'number') {{
+                        valueInput = `
+                            <label class="block text-xs font-medium text-gray-600 mt-3">Expected Value</label>
+                            <input type="number" data-rule-value="${{ruleType}}" class="mt-1 block w-full px-2 py-1.5 border border-gray-300 rounded text-sm" placeholder="e.g. 2">
+                        `;
+                    }} else if (rule.input_type === 'boolean') {{
+                        valueInput = `
+                            <label class="block text-xs font-medium text-gray-600 mt-3">Expected Value</label>
+                            <select data-rule-value="${{ruleType}}" class="mt-1 block w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                <option value="true">Required</option>
+                                <option value="false">Forbidden</option>
+                            </select>
+                        `;
+                    }}
+
+                    return `
+                        <div class="border border-gray-200 rounded-md p-3 bg-white">
+                            <label class="flex items-start gap-2">
+                                <input type="checkbox" data-rule-enabled="${{ruleType}}" class="mt-1">
+                                <span>
+                                    <span class="block text-sm font-semibold text-gray-800">${{label}}</span>
+                                    <span class="block text-xs text-gray-500">${{description}}</span>
+                                </span>
+                            </label>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+                                <div class="sm:col-span-2">${{valueInput}}</div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mt-3">Rule Weight</label>
+                                    <input type="number" step="0.1" min="0" data-rule-weight="${{ruleType}}" value="${{defaultWeight}}" class="mt-1 block w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }}).join('');
+            }}
+
+            function collectStaticRules() {{
+                const selectedRules = [];
+
+                for (const rule of currentRuleDefinitions) {{
+                    const ruleType = rule.rule_type;
+                    const enabled = document.querySelector(`[data-rule-enabled="${{ruleType}}"]`)?.checked;
+
+                    if (!enabled) continue;
+
+                    const valueEl = document.querySelector(`[data-rule-value="${{ruleType}}"]`);
+                    const weightEl = document.querySelector(`[data-rule-weight="${{ruleType}}"]`);
+                    const expectedValue = valueEl ? String(valueEl.value || '').trim() : '';
+                    const weight = parseFloat(weightEl?.value || rule.default_weight || 1);
+
+                    if ((rule.input_type === 'text' || rule.input_type === 'number') && !expectedValue) {{
+                        throw new Error(`Please complete the value for "${{rule.label || ruleType}}".`);
+                    }}
+
+                    if (Number.isNaN(weight) || weight < 0) {{
+                        throw new Error(`Please enter a valid weight for "${{rule.label || ruleType}}".`);
+                    }}
+
+                    selectedRules.push({{
+                        rule_type: ruleType,
+                        expected_value: expectedValue,
+                        weight,
+                        required: true,
+                    }});
+                }}
+
+                return selectedRules;
+            }}
+
             async function addQuestion(e) {{
                 e.preventDefault();
                 const btn = e.target.querySelector('button[type="submit"]');
@@ -71,6 +202,32 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                 const data = Object.fromEntries(formData.entries());
                 data.exam_id = currentExamId;
                 data.diff_level = parseInt(data.diff_level);
+                data.functional_weight = parseFloat(data.functional_weight);
+                data.static_weight = parseFloat(data.static_weight);
+                data.language = String(data.language || 'python').toLowerCase();
+
+                if (Number.isNaN(data.functional_weight) || Number.isNaN(data.static_weight) || data.functional_weight < 0 || data.static_weight < 0) {{
+                    alert("Functional and static weights must be non-negative numbers.");
+                    btn.disabled = false;
+                    btn.innerText = "Save Question";
+                    return;
+                }}
+
+                if (Math.abs((data.functional_weight + data.static_weight) - 100) > 0.001) {{
+                    alert("Functional weight and static weight must add up to 100.");
+                    btn.disabled = false;
+                    btn.innerText = "Save Question";
+                    return;
+                }}
+
+                try {{
+                    data.static_rules = collectStaticRules();
+                }} catch (validationErr) {{
+                    alert(validationErr.message || String(validationErr));
+                    btn.disabled = false;
+                    btn.innerText = "Save Question";
+                    return;
+                }}
                 
                 try {{
                     const res = await fetch('/api/launch/api/question', {{
@@ -83,6 +240,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         currentQuestionId = result.question_id;
                         document.getElementById('question-list').innerHTML += `<li class="text-sm py-1">✅ ${{result.title}}</li>`;
                         e.target.reset();
+                        loadStaticRules('python');
                         
                         document.getElementById('question-editor-wrapper').classList.add('hidden');
                         document.getElementById('testcase-creation-step').classList.remove('hidden');
@@ -255,13 +413,45 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                                             <option value="2">2 - Medium</option>
                                             <option value="3">3 - Hard</option>
                                         </select>
-                                        
-                                
+                                    </div>
+                                    <div class="w-1/2">
+                                        <label class="block text-sm font-medium text-gray-700">Programming Language</label>
+                                        <select name="language" id="question-language" onchange="loadStaticRules(this.value)" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded sm:text-sm">
+                                            <option value="python">Python</option>
+                                            <option value="javascript">JavaScript</option>
+                                            <option value="c">C</option>
+                                            <option value="cpp">C++</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Functional Weight</label>
+                                        <input type="number" step="0.1" min="0" max="100" name="functional_weight" value="80" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded sm:text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">Static Weight</label>
+                                        <input type="number" step="0.1" min="0" max="100" name="static_weight" value="20" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded sm:text-sm">
                                     </div>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700">Default Code / Boilerplate</label>
                                     <textarea name="default_code" rows="3" class="font-mono mt-1 block w-full px-3 py-2 border border-gray-300 rounded sm:text-sm">def solution():\n    pass</textarea>
+                                </div>
+                                <div class="rounded-md border border-gray-200 bg-gray-50 p-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div>
+                                            <h4 class="text-sm font-bold text-gray-700">Static Analysis Rules</h4>
+                                            <p class="text-xs text-gray-500">Rules are loaded dynamically for the selected language.</p>
+                                        </div>
+                                        <button type="button" onclick="loadStaticRules(document.getElementById('question-language').value)" class="text-xs px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-gray-700">
+                                            Reload Rules
+                                        </button>
+                                    </div>
+                                    <div id="static-rules-panel" class="space-y-3">
+                                        <div class="text-sm text-gray-500">Select a language to load rules.</div>
+                                    </div>
+                                    <p id="static-rule-status" class="text-xs text-gray-500 mt-2"></p>
                                 </div>
                                 <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
                                     Save Question
