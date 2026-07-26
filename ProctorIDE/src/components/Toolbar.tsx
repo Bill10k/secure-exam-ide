@@ -5,6 +5,7 @@ type ToolbarState = "idle" | "running" | "debugging" | "submitting";
 interface ToolbarProps {
   onRun?: () => void;
   onSubmit?: () => void;
+  disabled?: boolean;
   selectedLanguage?: string;
   onLanguageChange?: (language: string) => void;
 }
@@ -16,10 +17,11 @@ const languages = [
   { value: "cpp", label: "C++" },
 ];
 
-function Toolbar({ onRun, onSubmit, selectedLanguage = "python", onLanguageChange }: ToolbarProps) {
+function Toolbar({ onRun, onSubmit, disabled = false, selectedLanguage = "python", onLanguageChange }: ToolbarProps) {
   const [state, setState] = useState<ToolbarState>("idle");
 
   const handleRun = () => {
+    if (disabled) return;
     setState("running");
     if (onRun) onRun();
     // Simulate end of run after 1s if no external state handling resets it
@@ -27,14 +29,21 @@ function Toolbar({ onRun, onSubmit, selectedLanguage = "python", onLanguageChang
   };
   
   const handleSubmit = () => {
+    if (disabled) return;
     setState("submitting");
     if (onSubmit) onSubmit();
     // Simulate end of submit after 1s if no external state handling resets it
     setTimeout(() => setState("idle"), 1000);
   };
 
-  const handleDebug = () => setState(prev => prev === "debugging" ? "idle" : "debugging");
-  const handleStop = () => setState("idle");
+  const handleDebug = () => {
+    if (disabled) return;
+    setState(prev => prev === "debugging" ? "idle" : "debugging");
+  };
+  const handleStop = () => {
+    if (disabled) return;
+    setState("idle");
+  };
 
   const primaryTools = [
     {
@@ -113,11 +122,14 @@ function Toolbar({ onRun, onSubmit, selectedLanguage = "python", onLanguageChang
             <button
               key={tool.name}
               onClick={tool.onClick}
+              disabled={disabled}
               title={`${tool.name} (${tool.shortcut})`}
               className={`
                 flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium
                 border transition-all duration-150 select-none
-                ${tool.isActive
+                ${disabled
+                  ? "text-gray-600 border-transparent cursor-not-allowed"
+                  : tool.isActive
                   ? tool.activeColor
                   : `text-gray-400 border-transparent ${tool.hoverColor}`
                 }
@@ -158,12 +170,12 @@ function Toolbar({ onRun, onSubmit, selectedLanguage = "python", onLanguageChang
             <button
               key={tool.name}
               onClick={tool.onClick}
-              disabled={tool.disabled}
+              disabled={disabled || tool.disabled}
               title={`${tool.name} (${tool.shortcut})`}
               className={`
                 flex items-center justify-center w-8 h-8 rounded
                 transition-all duration-150 select-none
-                ${tool.disabled
+                ${disabled || tool.disabled
                   ? "text-gray-600 cursor-not-allowed"
                   : "text-gray-400 hover:text-gray-100 hover:bg-gray-700/60"
                 }

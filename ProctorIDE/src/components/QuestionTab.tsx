@@ -12,7 +12,7 @@ const diffLabels: Record<number, string> = {
   3: "Hard"
 };
 
-export default function QuestionPanel({ questions, activeId, setActiveId }: { questions: any[], activeId: number, setActiveId: (id: number) => void }) {
+export default function QuestionPanel({ questions, activeId, setActiveId, disabled = false }: { questions: any[], activeId: number, setActiveId: (id: number) => void, disabled?: boolean }) {
   if (!questions || questions.length === 0) return <div className="p-4 text-white">No questions available</div>;
 
   const active = questions.find((q) => q.question_id === activeId) || questions[0];
@@ -24,10 +24,16 @@ export default function QuestionPanel({ questions, activeId, setActiveId }: { qu
         {questions.map((q, index) => (
           <React.Fragment key={q.question_id}>
             <button
-              onClick={() => setActiveId(q.question_id)}
+              onClick={() => {
+                if (!disabled) setActiveId(q.question_id)
+              }}
+              disabled={disabled}
               className={`
                 px-4 py-2 whitespace-nowrap text-xs !bg-transparent font-semibold tracking-wide transition-colors
                 ${
+                  disabled
+                    ? "text-gray-600 cursor-not-allowed"
+                    :
                   activeId === q.question_id
                     ? "text-white bg-gray-900 border-b-2 border-blue-500"
                     : "text-gray-400 hover:text-gray-200 hover:bg-gray-700"

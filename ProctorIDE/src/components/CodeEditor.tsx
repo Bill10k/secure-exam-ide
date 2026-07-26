@@ -14,6 +14,7 @@ interface CodeEditorProps {
   onRun?: () => void;
   onSubmit?: () => void;
   onTerminalInit?: (terminal: any) => void;
+  disabled?: boolean;
 }
 
 
@@ -22,7 +23,7 @@ window.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
-function CodeEditor({ value, language = "python", selectedLanguage = "python", onLanguageChange, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit }: CodeEditorProps) {
+function CodeEditor({ value, language = "python", selectedLanguage = "python", onLanguageChange, onChange, inputValue, onInputChange, onRun, onSubmit, onTerminalInit, disabled = false }: CodeEditorProps) {
   const [outputH, setOutputH] = useState(220);
 
   const handleHeightChange = useCallback((h: number) => {
@@ -36,7 +37,7 @@ function CodeEditor({ value, language = "python", selectedLanguage = "python", o
     <div className="h-svh w-full flex flex-col overflow-hidden">
       <Toolbar
         onRun={onRun}
-        onSubmit={onSubmit}
+        onSubmit={onSubmit} disabled={disabled}
         selectedLanguage={selectedLanguage}
         onLanguageChange={onLanguageChange}
       />
@@ -62,10 +63,12 @@ function CodeEditor({ value, language = "python", selectedLanguage = "python", o
           wordWrap: "on",
           cursorBlinking: "smooth",
           smoothScrolling: true,
+          readOnly: disabled,
+          domReadOnly: disabled,
         }}
       />
 
-      <OutputBar onHeightChange={handleHeightChange} onTerminalInit={onTerminalInit} inputValue={inputValue} onInputChange={onInputChange} />
+      <OutputBar onHeightChange={handleHeightChange} onTerminalInit={onTerminalInit} inputValue={inputValue} onInputChange={onInputChange} disabled={disabled} />
     </div>
   );
 }

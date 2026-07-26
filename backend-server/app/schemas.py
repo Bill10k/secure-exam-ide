@@ -137,5 +137,9 @@ class CodeSnapshotHydrateResponse(BaseModel):
 
 
 class ExamHydrateResponse(ExamResponse):
+    server_time: datetime
+    session_started_at: datetime
+    session_duration_seconds: int
+    session_ends_at: datetime
     remaining_seconds: int
     questions: List[QuestionHydrateResponse] = []

@@ -1,22 +1,5 @@
-import { useState, useEffect } from "react";
-
 function Timer({ remainingSeconds }: { remainingSeconds: number }) {
-  const [totalSeconds, setTotalSeconds] = useState(remainingSeconds);
-
-  useEffect(() => {
-    setTotalSeconds(remainingSeconds);
-  }, [remainingSeconds]);
-
-  useEffect(() => {
-    if (totalSeconds <= 0) return;
-    const interval = setInterval(() => {
-      setTotalSeconds(prev => {
-        if (prev <= 1) { clearInterval(interval); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [totalSeconds]);
+  const totalSeconds = Math.max(remainingSeconds, 0);
 
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -47,9 +30,9 @@ function Timer({ remainingSeconds }: { remainingSeconds: number }) {
         <polyline points="12 6 12 12 16 14" />
       </svg>
 
-      {String(hours).padStart(2, "0")}:
-      {String(minutes).padStart(2, "0")}:
-      {String(seconds).padStart(2, "0")}
+      {totalSeconds <= 0
+        ? "Time is up"
+        : `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`}
     </div>
   );
 }

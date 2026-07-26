@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..schemas import CodeExecutionRequest, CodeExecutionResponse, SubmissionResponse
 from ..services.sandbox import execute_code_docker, grade_submission_docker
-from ..models import Submission, ExamSession, Question
+from ..models import Exam, Submission, ExamSession, Question
 from ..services.gradebook import refresh_exam_gradebook
+from ..services.exam_timing import get_session_timing
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
 
@@ -23,21 +24,39 @@ async def submit_code(request: CodeExecutionRequest, db: Session = Depends(get_d
     Executes code against hidden test cases using Docker, grades it, and saves to database.
     Used for final submission.
     """
-    # Grade the submission using the database test cases
-    result = await grade_submission_docker(request.code, request.question_id, db)
-    
-    # Save the submission record to the database
-    # 1. Fetch Question to get exam_id to relate this submission properly
     question = db.query(Question).filter(Question.question_id == request.question_id).first()
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
-    
-    # 2. Fetch Session to get user_id (if session_id provided)
+
     user_id = 1 # Fallback dummy user ID (Admin/Student ID 1) for testing if no session
+    db_session = None
     if request.session_id:
         db_session = db.query(ExamSession).filter(ExamSession.id == request.session_id).first()
-        if db_session and db_session.account_id:
+        if not db_session:
+            raise HTTPException(status_code=404, detail="Exam session not found")
+
+        if db_session.exam_id != question.exam_id:
+            raise HTTPException(status_code=403, detail="Question does not belong to this exam session")
+
+        exam = db.query(Exam).filter(Exam.exam_id == db_session.exam_id).first()
+        if not exam:
+            raise HTTPException(status_code=404, detail="Exam not found")
+
+        timing = get_session_timing(db_session, exam)
+        if timing["is_expired"]:
+            db_session.status = "expired"
+            db.add(db_session)
+            db.commit()
+            raise HTTPException(
+                status_code=403,
+                detail="Exam time limit has expired. Late submissions are not accepted.",
+            )
+
+        if db_session.account_id:
             user_id = db_session.account_id
+
+    # Grade the submission using the database test cases only after deadline checks pass.
+    result = await grade_submission_docker(request.code, request.question_id, db)
 
     # 3. Determine status integer for database (1 = Pass, 0 = Fail)
     status_code = 1 if result["status"] == "passed" else 0
