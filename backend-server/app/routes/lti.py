@@ -695,6 +695,7 @@ def create_exam_from_lti(exam_data: dict, db: Session = Depends(get_db)):
     new_exam = models.Exam(
         title=exam_data.get("title"),
         description=exam_data.get("description"),
+        language=exam_data.get("language", "python"),
         duration=exam_data.get("duration", 60),
         status=1,
     )

@@ -64,6 +64,7 @@ def hydrate_exam_session(session_id: int, db: Session = Depends(get_db)):
         "exam_id": exam.exam_id,
         "title": exam.title,
         "description": exam.description,
+        "language": exam.language,
         "start_time": exam.start_time,
         "end_time": exam.end_time,
         "duration": exam.duration,

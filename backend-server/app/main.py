@@ -39,6 +39,7 @@ _add_sqlite_column("exam_sessions", "ags_last_pushed_at", "ags_last_pushed_at DA
 _add_sqlite_column("exam_sessions", "started_at", "started_at DATETIME")
 _add_sqlite_column("exam_sessions", "duration", "duration INTEGER")
 _add_sqlite_column("submissions", "session_id", "session_id INTEGER")
+_add_sqlite_column("exams", "language", "language VARCHAR DEFAULT 'python'")
 
 app = FastAPI(title="Secure Exam IDE API")
 

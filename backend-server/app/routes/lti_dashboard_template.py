@@ -1,7 +1,21 @@
+from ..services.language_registry import LANGUAGE_REGISTRY
+
+
 def get_instructor_dashboard_html(id_token: str, exams: list):
     options_html = ""
     for exam in exams:
         options_html += f'<option value="{exam.exam_id}">{exam.title} (Duration: {exam.duration}m)</option>'
+
+    language_options_html = ""
+    language_labels = {
+        "python": "Python",
+        "javascript": "JavaScript",
+        "c": "C",
+        "cpp": "C++",
+    }
+    for language_key in LANGUAGE_REGISTRY.keys():
+        label = language_labels.get(language_key, language_key.capitalize())
+        language_options_html += f'<option value="{language_key}">{label}</option>'
         
     return f"""
     <!DOCTYPE html>
@@ -211,6 +225,13 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Duration (Minutes)</label>
                             <input type="number" name="duration" value="60" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Language</label>
+                            <select name="language" class="mt-1 block w-full bg-gray-800 text-white text-xs px-2 py-1 rounded border border-gray-700 focus:outline-none focus:border-blue-400">
+                                <option value="">-- Select language --</option>
+                                {language_options_html}
+                            </select>
                         </div>
                         <div class="pt-4 border-t border-gray-200">
                             <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">

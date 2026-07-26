@@ -78,6 +78,7 @@ class TestCaseResponse(TestCaseBase):
 class ExamBase(BaseModel):
     title: str
     description: str
+    language: str = "python"
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     duration: int

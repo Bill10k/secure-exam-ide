@@ -21,6 +21,7 @@ type HydrateQuestion = {
 
 type HydrateExam = {
   questions: HydrateQuestion[]
+  language?: string
   remaining_seconds?: number
   server_time?: string
   session_started_at?: string
@@ -92,6 +93,7 @@ const applyHydrateData = useCallback((data: HydrateExam) => {
   }
 
   setExamState(data)
+  setSelectedLanguage(data.language ?? "python")
   if (typeof data.remaining_seconds === "number") {
     setRemainingSeconds(data.remaining_seconds)
   }
@@ -451,7 +453,7 @@ const submitCurrentQuestion = useCallback(async (forcedByTimeout = false) => {
 
     const submissionPayload = {
       code: currentCode,
-      language: "python",
+      language: selectedLanguage,
       question_id: questionId,
       session_id: sessionId,
     }
@@ -724,8 +726,6 @@ if (error) {
             onSubmit={handleSubmit}
             onTerminalInit={handleTerminalInit}
             disabled={isTimedOut || isSubmitLocked}
-            onLanguageChange={setSelectedLanguage}
-            selectedLanguage={selectedLanguage}
           />
         </div>
 

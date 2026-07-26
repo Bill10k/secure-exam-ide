@@ -64,11 +64,13 @@ class Exam(Base):
     exam_id = Column(Integer, primary_key=True, index=True)
     title = Column(String)
     description = Column(Text)
+    language = Column(String, default="python")
     start_time = Column(DateTime(timezone=True))
     end_time = Column(DateTime(timezone=True))
     duration = Column(Integer) # in minutes
     status = Column(Integer, default=1) # 1: Active, 0: Inactive
     date_created = Column(DateTime(timezone=True), server_default=func.now())
+    
     
     questions = relationship("Question", back_populates="exam")
     assignments = relationship("ExamAssignment", back_populates="exam")
