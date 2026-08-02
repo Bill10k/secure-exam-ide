@@ -299,6 +299,7 @@ def push_exam_grades_to_moodle(db: Session, exam_id: int) -> dict[str, Any]:
         if not scope_values:
             raw_scopes = ags_endpoint.get("scope", [])
             scope_values = raw_scopes if isinstance(raw_scopes, list) else [raw_scopes] if raw_scopes else []
+            print("AGS scopes:", scope_values)
 
         lineitem_url = session.ags_lineitem_url or ags_endpoint.get("lineitem")
         lineitems_url = session.ags_lineitems_url or ags_endpoint.get("lineitems")
