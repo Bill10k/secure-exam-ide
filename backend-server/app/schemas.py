@@ -51,7 +51,7 @@ class StaticRuleBase(BaseModel):
 
 
 class StaticRuleCreate(StaticRuleBase):
-    pass
+    rule_id: Optional[int] = None
 
 
 class StaticRuleResponse(StaticRuleBase):
@@ -123,6 +123,29 @@ class QuestionCreate(QuestionBase):
         return self
 
 
+class QuestionUpdate(QuestionBase):
+    static_rules: List[StaticRuleCreate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_static_rules(self):
+        if self.static_weight == 0 and self.static_rules:
+            raise ValueError(
+                "Static rules cannot be provided when static weight is 0."
+            )
+
+        total_rule_weight = sum(rule.weight for rule in self.static_rules)
+
+        if any(rule.weight < 0 for rule in self.static_rules):
+            raise ValueError("Static-rule weights cannot be negative.")
+
+        if self.static_weight > 0 and self.static_rules and total_rule_weight <= 0:
+            raise ValueError(
+                "Static rules must have a total weight greater than 0."
+            )
+
+        return self
+
+
 class QuestionResponse(QuestionBase):
     question_id: int
     exam_id: int
@@ -132,8 +155,6 @@ class QuestionResponse(QuestionBase):
         from_attributes = True
 
 
-class QuestionHydrateResponse(QuestionResponse):
-    snapshot: Optional["CodeSnapshotHydrateResponse"] = None
 # TestCase
 class TestCaseBase(BaseModel):
     input_data: str
@@ -141,15 +162,30 @@ class TestCaseBase(BaseModel):
     is_hidden: bool = True
     weight: Optional[float] = 1.0
 
+
 class TestCaseCreate(TestCaseBase):
     question_id: int
+
+
+class TestCaseUpdate(TestCaseBase):
+    pass
+
 
 class TestCaseResponse(TestCaseBase):
     test_case_id: int
     question_id: int
-    
+
     class Config:
         from_attributes = True
+
+
+class QuestionDetailResponse(QuestionResponse):
+    test_cases: List[TestCaseResponse] = Field(default_factory=list)
+
+
+class QuestionHydrateResponse(QuestionResponse):
+    snapshot: Optional["CodeSnapshotHydrateResponse"] = None
+
 
 # Exam
 class ExamBase(BaseModel):
@@ -160,8 +196,38 @@ class ExamBase(BaseModel):
     end_time: Optional[datetime] = None
     duration: int
 
+
+class ExamSummaryResponse(BaseModel):
+    exam_id: int
+    title: str
+    description: Optional[str] = ""
+    duration: int
+    language: str = "python"
+    question_count: int = 0
+    published: bool = True
+
+    class Config:
+        from_attributes = True
+
+
+class ExamUpdate(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    duration: int
+    published: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def validate_exam(self):
+        if not self.title or not self.title.strip():
+            raise ValueError("Exam title cannot be empty.")
+        if self.duration <= 0:
+            raise ValueError("Exam duration must be positive.")
+        return self
+
+
 class ExamResponse(ExamBase):
     exam_id: int
+    published: bool = True
     questions: List[QuestionResponse] = Field(default_factory=list)
 
     class Config:

@@ -72,9 +72,17 @@ class Exam(Base):
     date_created = Column(DateTime(timezone=True), server_default=func.now())
     
     
-    questions = relationship("Question", back_populates="exam")
-    assignments = relationship("ExamAssignment", back_populates="exam")
+    questions = relationship("Question", back_populates="exam", cascade="all, delete-orphan")
+    assignments = relationship("ExamAssignment", back_populates="exam", cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="exam")
+
+    @property
+    def published(self) -> bool:
+        return self.status == 1
+
+    @published.setter
+    def published(self, value: bool) -> None:
+        self.status = 1 if value else 0
 
 class ExamAssignment(Base):
     __tablename__ = "exam_assignments"

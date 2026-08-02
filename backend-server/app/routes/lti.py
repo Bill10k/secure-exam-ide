@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Form, Request
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -687,12 +688,28 @@ def jwks():
 
 
 
-from ..schemas import ExamResponse, QuestionCreate, QuestionResponse, TestCaseResponse
+from ..schemas import (
+    ExamResponse,
+    ExamSummaryResponse,
+    ExamUpdate,
+    QuestionCreate,
+    QuestionDetailResponse,
+    QuestionResponse,
+    QuestionUpdate,
+    TestCaseCreate,
+    TestCaseResponse,
+    TestCaseUpdate,
+)
 from ..grading.rule_registry import is_rule_supported_for_language
+
+lti_mgmt_router = APIRouter(
+    prefix="/lti",
+    tags=["lti-management"],
+)
+
 
 @router.post("/api/exam", response_model=ExamResponse)
 def create_exam_from_lti(exam_data: dict, db: Session = Depends(get_db)):
-    from datetime import datetime
     new_exam = models.Exam(
         title=exam_data.get("title"),
         description=exam_data.get("description"),
@@ -704,6 +721,7 @@ def create_exam_from_lti(exam_data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_exam)
     return new_exam
+
 
 @router.post("/api/question", response_model=QuestionResponse)
 def create_question_from_lti(question_data: QuestionCreate, db: Session = Depends(get_db)):
@@ -749,6 +767,7 @@ def create_question_from_lti(question_data: QuestionCreate, db: Session = Depend
     db.refresh(new_question)
     return new_question
 
+
 @router.post("/api/testcase", response_model=TestCaseResponse)
 def create_testcase_from_lti(tc_data: dict, db: Session = Depends(get_db)):
     new_tc = models.TestCase(
@@ -762,3 +781,209 @@ def create_testcase_from_lti(tc_data: dict, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_tc)
     return new_tc
+
+
+# ================= Management REST Endpoints (/lti) =================
+
+@lti_mgmt_router.get("/exams", response_model=List[ExamSummaryResponse])
+def get_all_exams(db: Session = Depends(get_db)):
+    exams = db.query(models.Exam).all()
+    summary = []
+    for exam in exams:
+        summary.append(
+            ExamSummaryResponse(
+                exam_id=exam.exam_id,
+                title=exam.title,
+                description=exam.description or "",
+                duration=exam.duration,
+                language=exam.language or "python",
+                question_count=len(exam.questions),
+                published=exam.published,
+            )
+        )
+    return summary
+
+
+@lti_mgmt_router.get("/exams/{exam_id}", response_model=ExamResponse)
+def get_exam_by_id(exam_id: int, db: Session = Depends(get_db)):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    return exam
+
+
+@lti_mgmt_router.put("/exams/{exam_id}", response_model=ExamResponse)
+def update_exam(exam_id: int, exam_data: ExamUpdate, db: Session = Depends(get_db)):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    target_published = exam_data.published if exam_data.published is not None else exam.published
+    if target_published:
+        if not exam.questions:
+            raise HTTPException(
+                status_code=400,
+                detail="Exam cannot be published because it has no questions."
+            )
+        for question in exam.questions:
+            if not question.test_cases:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Exam cannot be published because Question '{question.title}' has no test cases."
+                )
+
+    exam.title = exam_data.title
+    exam.description = exam_data.description or ""
+    exam.duration = exam_data.duration
+    if exam_data.published is not None:
+        exam.published = exam_data.published
+
+    db.commit()
+    db.refresh(exam)
+    return exam
+
+
+@lti_mgmt_router.delete("/exams/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_exam(exam_id: int, db: Session = Depends(get_db)):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    # Submission Safety Protection: Block deletion if student submissions exist for this exam
+    submission_exists = db.query(models.Submission).filter(models.Submission.exam_id == exam_id).first()
+    if submission_exists:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete an examination that already contains student submissions."
+        )
+
+    try:
+        # Delete associated exam sessions & AGS metadata records
+        sessions = db.query(models.ExamSession).filter(models.ExamSession.exam_id == exam_id).all()
+        for session in sessions:
+            db.delete(session)
+
+        # Delete the exam (cascades to questions, static rules, test cases, and assignments)
+        db.delete(exam)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete exam: {str(exc)}")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@lti_mgmt_router.get("/questions/{question_id}", response_model=QuestionDetailResponse)
+def get_question_detail(question_id: int, db: Session = Depends(get_db)):
+    question = db.query(models.Question).filter(models.Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return question
+
+
+@lti_mgmt_router.put("/questions/{question_id}", response_model=QuestionDetailResponse)
+def update_question(question_id: int, question_data: QuestionUpdate, db: Session = Depends(get_db)):
+    question = db.query(models.Question).filter(models.Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    for static_rule in question_data.static_rules:
+        if not is_rule_supported_for_language(static_rule.rule_type, question_data.language):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rule '{static_rule.rule_type}' is not supported for language '{question_data.language}'."
+            )
+
+    question.title = question_data.title
+    question.description = question_data.description
+    question.diff_level = question_data.diff_level
+    question.language = question_data.language
+    question.functional_weight = question_data.functional_weight
+    question.static_weight = question_data.static_weight
+    question.default_code = question_data.default_code or ""
+
+    # Smart differential static rule sync
+    existing_rules_by_id = {r.rule_id: r for r in question.static_rules}
+    updated_rule_ids = set()
+
+    for rule_data in question_data.static_rules:
+        if rule_data.rule_id and rule_data.rule_id in existing_rules_by_id:
+            existing_rule = existing_rules_by_id[rule_data.rule_id]
+            existing_rule.rule_type = rule_data.rule_type
+            existing_rule.expected_value = rule_data.expected_value
+            existing_rule.weight = rule_data.weight
+            existing_rule.required = rule_data.required
+            updated_rule_ids.add(rule_data.rule_id)
+        else:
+            new_rule = models.QuestionStaticRule(
+                question_id=question.question_id,
+                rule_type=rule_data.rule_type,
+                expected_value=rule_data.expected_value,
+                weight=rule_data.weight,
+                required=rule_data.required,
+            )
+            db.add(new_rule)
+
+    for rule_id, existing_rule in existing_rules_by_id.items():
+        if rule_id not in updated_rule_ids:
+            db.delete(existing_rule)
+
+    db.commit()
+    db.refresh(question)
+    return question
+
+
+@lti_mgmt_router.delete("/questions/{question_id}")
+def delete_question(question_id: int, db: Session = Depends(get_db)):
+    question = db.query(models.Question).filter(models.Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    db.delete(question)
+    db.commit()
+    return {"message": "Question deleted successfully"}
+
+
+@lti_mgmt_router.post("/testcases", response_model=TestCaseResponse)
+def create_testcase(tc_data: TestCaseCreate, db: Session = Depends(get_db)):
+    question = db.query(models.Question).filter(models.Question.question_id == tc_data.question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    new_tc = models.TestCase(
+        question_id=tc_data.question_id,
+        input_data=tc_data.input_data,
+        expected_output=tc_data.expected_output,
+        is_hidden=tc_data.is_hidden,
+        weight=tc_data.weight or 1.0,
+    )
+    db.add(new_tc)
+    db.commit()
+    db.refresh(new_tc)
+    return new_tc
+
+
+@lti_mgmt_router.put("/testcases/{testcase_id}", response_model=TestCaseResponse)
+def update_testcase(testcase_id: int, tc_data: TestCaseUpdate, db: Session = Depends(get_db)):
+    tc = db.query(models.TestCase).filter(models.TestCase.test_case_id == testcase_id).first()
+    if not tc:
+        raise HTTPException(status_code=404, detail="TestCase not found")
+
+    tc.input_data = tc_data.input_data
+    tc.expected_output = tc_data.expected_output
+    tc.is_hidden = tc_data.is_hidden
+    tc.weight = tc_data.weight or 1.0
+
+    db.commit()
+    db.refresh(tc)
+    return tc
+
+
+@lti_mgmt_router.delete("/testcases/{testcase_id}")
+def delete_testcase(testcase_id: int, db: Session = Depends(get_db)):
+    tc = db.query(models.TestCase).filter(models.TestCase.test_case_id == testcase_id).first()
+    if not tc:
+        raise HTTPException(status_code=404, detail="TestCase not found")
+
+    db.delete(tc)
+    db.commit()
+    return {"message": "TestCase deleted successfully"}

@@ -59,6 +59,7 @@ app.add_middleware(
 )
 
 app.include_router(lti.router)
+app.include_router(lti.lti_mgmt_router)
 app.include_router(submissions.router)
 app.include_router(questions.router)
 app.include_router(exams.router)
