@@ -81,6 +81,8 @@ function Environment() {
   const [submissionComplete, setSubmissionComplete] = useState(false)
   const successfulSubmitRef = useRef(false)
 
+  const API_URL = import.meta.env.BASE_URL
+
   const SNAPSHOT_FLUSH_INTERVAL_MS = 2 * 60 * 1000
 
   const [loading, setLoading] = useState(true)
@@ -156,7 +158,7 @@ const persistSnapshot = useCallback((payload: SnapshotPayload, keepalive = false
       return false
     }
 
-    const response = await fetch("http://127.0.0.1:8000/snapshots/save", {
+    const response = await fetch(`http://${API_URL}/snapshots/save`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -248,7 +250,7 @@ const retryPendingSubmissions = useCallback(async () => {
       try {
         await invoke("increment_pending_submission_retry", { id: pending.id })
         const submissionPayload = JSON.parse(pending.payload)
-        const response = await fetch("http://localhost:8000/submissions/submit", {
+        const response = await fetch(`http://${API_URL}/submissions/submit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(submissionPayload),
@@ -278,7 +280,7 @@ useEffect(() => {
   setError(null)
 
     try {
-      const response = await fetch(`http://127.0.0.1:8000/exams/session/${sessionId}/hydrate`)
+      const response = await fetch(`http://${API_URL}/exams/session/${sessionId}/hydrate`)
       if (!response.ok) throw new Error(`Hydrate failed: ${response.status}`)
 
       const data = await response.json()
@@ -471,7 +473,7 @@ const submitCurrentQuestion = useCallback(async (forcedByTimeout = false) => {
       : null
 
     try {
-      const response = await fetch("http://localhost:8000/submissions/submit", {
+      const response = await fetch(`http://${API_URL}/submissions/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(submissionPayload),
@@ -578,7 +580,7 @@ useEffect(() => {
     term.writeln("\x1b[33m\r\nRunning code...\x1b[0m");
     
     try {
-      const response = await fetch("http://localhost:8000/submissions/run", {
+      const response = await fetch(`http://${API_URL}/submissions/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
