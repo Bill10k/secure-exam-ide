@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean, Index, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean, Index, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -251,8 +251,34 @@ class Submission(Base):
     question_id = Column(Integer, ForeignKey('questions.question_id'))
     exam_id = Column(Integer, ForeignKey('exams.exam_id'))
     submitted_code = Column(Text)
-    score = Column(Float)
-    status = Column(Integer) # e.g., 0: pending, 1: graded
+    
+    # Score breakdowns
+    functional_score = Column(Float, default=0.0)
+    static_score = Column(Float, default=0.0)
+    final_score = Column(Float, default=0.0)
+    score = Column(Float) # Legacy compat alias
+    status = Column(Integer) # 1: passed, 0: failed
+    status_label = Column(String, default="Passed") # "Passed", "Failed", "Compile Error", "Runtime Error"
+
+    # Native JSON results
+    functional_results = Column(JSON, nullable=True)
+    static_analysis = Column(JSON, nullable=True)
+
+    # Grading Telemetry & Timing
+    graded_at = Column(DateTime(timezone=True), server_default=func.now())
+    grading_duration_ms = Column(Float, default=0.0)
+    grading_version = Column(String, default="v1")
+
+    # Moodle AGS Telemetry
+    sync_status = Column(String, default="pending") # "synced", "failed", "pending", "not_available"
+    sync_message = Column(Text, nullable=True)
+    synced_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Plagiarism Groundwork
+    submission_hash = Column(String, nullable=True)
+    ast_hash = Column(String, nullable=True)
+    token_hash = Column(String, nullable=True)
+
     submitted_at = Column(DateTime(timezone=True), server_default=func.now())
     
     session = relationship("ExamSession", back_populates="submissions")

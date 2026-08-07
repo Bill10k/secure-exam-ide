@@ -3,6 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Form, Request, Re
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+import csv
+import io
+import math
+import statistics
 import json
 import jwt
 import base64
@@ -18,7 +22,7 @@ from ..database import get_db
 from .. import models, schemas
 from ..dependencies import SECRET_KEY, ALGORITHM
 from ..services.gradebook import refresh_exam_gradebook
-from ..services.moodle_ags import push_exam_grades_to_moodle
+from ..services.moodle_ags import push_exam_grades_to_moodle, push_submission_grade_to_moodle
 
 router = APIRouter(
     prefix="/api/launch",
@@ -433,11 +437,16 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
         # Extract custom parameters configured during Deep Linking
         custom_params = payload.get("https://purl.imsglobal.org/spec/lti/claim/custom", {})
         exam_id_str = custom_params.get("exam_id")
-        exam_id = int(exam_id_str) if exam_id_str and exam_id_str.isdigit() else None
+        exam_id = int(exam_id_str) if exam_id_str and str(exam_id_str).isdigit() else None
 
-        exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+        exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first() if exam_id else None
+        if not exam:
+            exam = db.query(models.Exam).filter(models.Exam.status == 1).first()
+        if not exam:
+            exam = db.query(models.Exam).first()
         if not exam:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exam not found")
+        exam_id = exam.exam_id
 
         now = datetime.now(timezone.utc)
         
@@ -515,19 +524,19 @@ def validate_launch(id_token: str = Form(...), state: str = Form(None), db: Sess
                     a.btn {{ display: inline-block; margin-top: 1.5rem; padding: 1rem 2rem; background-color: #2563eb; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 1.1rem; transition: background-color 0.2s; }}
                     a.btn:hover {{ background-color: #1d4ed8; }}
                 </style>
-                <script>
+                # <script>
             
-                    // Attempt to launch the deep link automatically
-                    window.onload = function() {{
-                        window.location.href = "{proctoride_url}";
-                    }};
-                </script>
+                #     // Attempt to launch the deep link automatically
+                #     window.onload = function() {{
+                #         window.location.href = "{proctoride_url}";
+                #     }};
+                # </script>
             </head>
             <body>
                 <div class="card">
                     <h2>Exam Authorization Successful!</h2>
                     <p>Session ID: <b>{db_session.id}</b></p>
-                    <p>If ProctorIDE does not open automatically, please click the button below:</p>
+                    <p>Click the button to launch the examination.</p>
                     <a href="{proctoride_url}" class="btn">Launch ProctorIDE</a>
                 </div>
             </body>
@@ -798,6 +807,7 @@ def get_all_exams(db: Session = Depends(get_db)):
                 duration=exam.duration,
                 language=exam.language or "python",
                 question_count=len(exam.questions),
+                submission_count=len(exam.submissions),
                 published=exam.published,
             )
         )
@@ -858,9 +868,10 @@ def delete_exam(exam_id: int, db: Session = Depends(get_db)):
         )
 
     try:
-        # Delete associated exam sessions & AGS metadata records
+        # Delete associated exam sessions, snapshots, & AGS metadata records
         sessions = db.query(models.ExamSession).filter(models.ExamSession.exam_id == exam_id).all()
         for session in sessions:
+            db.query(models.CodeSnapshot).filter(models.CodeSnapshot.session_id == session.id).delete(synchronize_session=False)
             db.delete(session)
 
         # Delete the exam (cascades to questions, static rules, test cases, and assignments)
@@ -987,3 +998,329 @@ def delete_testcase(testcase_id: int, db: Session = Depends(get_db)):
     db.delete(tc)
     db.commit()
     return {"message": "TestCase deleted successfully"}
+
+
+# ================= Lecturer Results & Assessment Analytics Endpoints =================
+
+@lti_mgmt_router.get("/results/{exam_id}")
+def get_exam_results_paginated(
+    exam_id: int,
+    page: int = 1,
+    page_size: int = 20,
+    search: str = "",
+    status_filter: str = "all",
+    sort_by: str = "submitted_at_desc",
+    db: Session = Depends(get_db),
+):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    query = db.query(models.Submission).filter(models.Submission.exam_id == exam_id)
+    submissions = query.all()
+
+    enriched_items = []
+    for sub in submissions:
+        student_name = "Student"
+        student_email = f"student_{sub.user_id}@example.com"
+        if sub.user_account:
+            fn = sub.user_account.first_name or ""
+            ln = sub.user_account.last_name or ""
+            name = f"{fn} {ln}".strip()
+            student_name = name if name else (sub.user_account.email or f"User #{sub.user_id}")
+            if sub.user_account.email:
+                student_email = sub.user_account.email
+        elif sub.session and sub.session.lti_user_sub:
+            student_name = sub.session.lti_user_sub
+
+        item = {
+            "submission_id": sub.submission_id,
+            "session_id": sub.session_id,
+            "user_id": sub.user_id,
+            "student_name": student_name,
+            "student_email": student_email,
+            "question_id": sub.question_id,
+            "final_score": sub.final_score if sub.final_score is not None else (sub.score or 0.0),
+            "functional_score": sub.functional_score or 0.0,
+            "static_score": sub.static_score or 0.0,
+            "status": sub.status,
+            "status_label": sub.status_label or ("Passed" if sub.status == 1 else "Failed"),
+            "sync_status": sub.sync_status or "pending",
+            "sync_message": sub.sync_message,
+            "synced_at": sub.synced_at.isoformat() if sub.synced_at else None,
+            "grading_duration_ms": sub.grading_duration_ms or 0.0,
+            "submitted_at": sub.submitted_at.isoformat() if sub.submitted_at else None,
+        }
+        enriched_items.append(item)
+
+    if search.strip():
+        term = search.strip().lower()
+        enriched_items = [
+            x for x in enriched_items
+            if term in x["student_name"].lower()
+            or term in x["student_email"].lower()
+            or term in str(x["submission_id"])
+        ]
+
+    if status_filter == "passed":
+        enriched_items = [x for x in enriched_items if x["status"] == 1 or x["status_label"] == "Passed"]
+    elif status_filter == "failed":
+        enriched_items = [x for x in enriched_items if x["status"] == 0 or x["status_label"] != "Passed"]
+    elif status_filter == "not_synced":
+        enriched_items = [x for x in enriched_items if x["sync_status"] != "synced"]
+
+    if sort_by == "name_asc":
+        enriched_items.sort(key=lambda x: x["student_name"].lower())
+    elif sort_by == "name_desc":
+        enriched_items.sort(key=lambda x: x["student_name"].lower(), reverse=True)
+    elif sort_by == "score_desc":
+        enriched_items.sort(key=lambda x: x["final_score"], reverse=True)
+    elif sort_by == "score_asc":
+        enriched_items.sort(key=lambda x: x["final_score"])
+    elif sort_by == "submitted_at_asc":
+        enriched_items.sort(key=lambda x: x["submitted_at"] or "")
+    elif sort_by == "duration_desc":
+        enriched_items.sort(key=lambda x: x["grading_duration_ms"], reverse=True)
+    elif sort_by == "sync_status":
+        enriched_items.sort(key=lambda x: x["sync_status"])
+    else:
+        enriched_items.sort(key=lambda x: x["submitted_at"] or "", reverse=True)
+
+    total_items = len(enriched_items)
+    page_size = max(1, page_size)
+    total_pages = max(1, math.ceil(total_items / page_size))
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * page_size
+    end_idx = start_idx + page_size
+    paginated_items = enriched_items[start_idx:end_idx]
+
+    return {
+        "exam_id": exam_id,
+        "exam_title": exam.title,
+        "total_items": total_items,
+        "total_pages": total_pages,
+        "current_page": page,
+        "page_size": page_size,
+        "submissions": paginated_items,
+    }
+
+
+@lti_mgmt_router.get("/results/{exam_id}/analytics")
+def get_exam_analytics(exam_id: int, db: Session = Depends(get_db)):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    submissions = db.query(models.Submission).filter(models.Submission.exam_id == exam_id).all()
+    sessions = db.query(models.ExamSession).filter(models.ExamSession.exam_id == exam_id).all()
+
+    total_submissions = len(submissions)
+    unique_students = len({sub.user_id for sub in submissions if sub.user_id})
+
+    scores = [sub.final_score if sub.final_score is not None else (sub.score or 0.0) for sub in submissions]
+    functional_scores = [sub.functional_score or 0.0 for sub in submissions]
+    static_scores = [sub.static_score or 0.0 for sub in submissions]
+
+    avg_score = round(statistics.mean(scores), 2) if scores else 0.0
+    median_score = round(statistics.median(scores), 2) if scores else 0.0
+    highest_score = round(max(scores), 2) if scores else 0.0
+    lowest_score = round(min(scores), 2) if scores else 0.0
+    std_dev = round(statistics.stdev(scores), 2) if len(scores) > 1 else 0.0
+
+    passed_count = sum(1 for sub in submissions if (sub.status == 1 or sub.status_label == "Passed"))
+    pass_rate_pct = round((passed_count / total_submissions * 100), 1) if total_submissions > 0 else 0.0
+
+    synced_count = sum(1 for sub in submissions if sub.sync_status == "synced")
+    failed_sync_count = sum(1 for sub in submissions if sub.sync_status == "failed")
+
+    avg_functional = round(statistics.mean(functional_scores), 2) if functional_scores else 0.0
+    avg_static = round(statistics.mean(static_scores), 2) if static_scores else 0.0
+
+    histogram = {
+        "score_100": sum(1 for s in scores if s == 100),
+        "score_90_99": sum(1 for s in scores if 90 <= s < 100),
+        "score_80_89": sum(1 for s in scores if 80 <= s < 90),
+        "score_70_79": sum(1 for s in scores if 70 <= s < 80),
+        "score_below_70": sum(1 for s in scores if s < 70),
+    }
+
+    rule_stats: dict[str, dict[str, Any]] = {}
+    for sub in submissions:
+        rules = sub.static_analysis or []
+        if isinstance(rules, list):
+            for rule in rules:
+                if isinstance(rule, dict):
+                    rule_name = rule.get("rule_type") or rule.get("label") or "Unknown Rule"
+                    if rule_name not in rule_stats:
+                        rule_stats[rule_name] = {"rule_name": rule_name, "total_evaluations": 0, "failed_count": 0}
+                    rule_stats[rule_name]["total_evaluations"] += 1
+                    if not rule.get("passed", False):
+                        rule_stats[rule_name]["failed_count"] += 1
+
+    rule_heatmap = sorted(rule_stats.values(), key=lambda r: r["failed_count"], reverse=True)
+
+    return {
+        "exam_id": exam_id,
+        "exam_title": exam.title,
+        "total_submissions": total_submissions,
+        "unique_students": unique_students,
+        "total_sessions": len(sessions),
+        "overview": {
+            "average_score": avg_score,
+            "median_score": median_score,
+            "highest_score": highest_score,
+            "lowest_score": lowest_score,
+            "std_dev": std_dev,
+            "pass_rate_pct": pass_rate_pct,
+            "avg_functional_score": avg_functional,
+            "avg_static_score": avg_static,
+            "synced_count": synced_count,
+            "failed_sync_count": failed_sync_count,
+        },
+        "histogram": histogram,
+        "rule_heatmap": rule_heatmap,
+    }
+
+
+@lti_mgmt_router.get("/submissions/{submission_id}")
+def get_submission_detail(submission_id: int, db: Session = Depends(get_db)):
+    sub = db.query(models.Submission).filter(models.Submission.submission_id == submission_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == sub.exam_id).first()
+    question = db.query(models.Question).filter(models.Question.question_id == sub.question_id).first()
+
+    student_name = "Student"
+    student_email = f"student_{sub.user_id}@example.com"
+    if sub.user_account:
+        fn = sub.user_account.first_name or ""
+        ln = sub.user_account.last_name or ""
+        name = f"{fn} {ln}".strip()
+        student_name = name if name else (sub.user_account.email or f"User #{sub.user_id}")
+        if sub.user_account.email:
+            student_email = sub.user_account.email
+
+    snapshots = []
+    if sub.session_id and sub.question_id:
+        snap_records = db.query(models.CodeSnapshot).filter(
+            models.CodeSnapshot.session_id == sub.session_id,
+            models.CodeSnapshot.question_id == sub.question_id,
+        ).order_by(models.CodeSnapshot.version.asc()).all()
+        for snap in snap_records:
+            snapshots.append({
+                "snapshot_id": snap.snapshot_id,
+                "version": snap.version,
+                "saved_at": snap.saved_at.isoformat() if snap.saved_at else None,
+                "code": snap.code,
+            })
+
+    timeline = []
+    if sub.session and sub.session.started_at:
+        timeline.append({"time": sub.session.started_at.isoformat(), "event": "Exam Started"})
+    if snapshots:
+        timeline.append({"time": snapshots[0]["saved_at"], "event": f"Code snapshots created ({len(snapshots)} saved)"})
+    if sub.submitted_at:
+        timeline.append({"time": sub.submitted_at.isoformat(), "event": "Final Code Submitted"})
+    if sub.graded_at:
+        timeline.append({"time": sub.graded_at.isoformat(), "event": f"Graded in {sub.grading_duration_ms or 0} ms"})
+    if sub.synced_at:
+        timeline.append({"time": sub.synced_at.isoformat(), "event": f"Moodle Sync ({sub.sync_status}): {sub.sync_message or ''}"})
+
+    return {
+        "submission_id": sub.submission_id,
+        "session_id": sub.session_id,
+        "student_name": student_name,
+        "student_email": student_email,
+        "exam_title": exam.title if exam else "Exam",
+        "question_title": question.title if question else "Question",
+        "language": question.language if question else "python",
+        "submitted_code": sub.submitted_code or "",
+
+        "final_score": sub.final_score if sub.final_score is not None else (sub.score or 0.0),
+        "functional_score": sub.functional_score or 0.0,
+        "static_score": sub.static_score or 0.0,
+        "functional_weight": question.functional_weight if question else 80.0,
+        "static_weight": question.static_weight if question else 20.0,
+
+        "status_label": sub.status_label or ("Passed" if sub.status == 1 else "Failed"),
+        "functional_results": sub.functional_results or [],
+        "static_analysis": sub.static_analysis or [],
+
+        "grading_duration_ms": sub.grading_duration_ms or 0.0,
+        "grading_version": sub.grading_version or "v1",
+        "submission_hash": sub.submission_hash,
+
+        "sync_status": sub.sync_status or "pending",
+        "sync_message": sub.sync_message,
+        "synced_at": sub.synced_at.isoformat() if sub.synced_at else None,
+
+        "snapshots": snapshots,
+        "timeline": timeline,
+    }
+
+
+@lti_mgmt_router.post("/sync/retry/{submission_id}")
+def retry_moodle_sync(submission_id: int, db: Session = Depends(get_db)):
+    result = push_submission_grade_to_moodle(db, submission_id)
+    return {
+        "submission_id": submission_id,
+        "sync_status": result.get("sync_status", "failed"),
+        "message": result.get("message", "Retry attempted"),
+    }
+
+
+@lti_mgmt_router.get("/results/{exam_id}/export")
+def export_exam_results(
+    exam_id: int,
+    format: str = "csv",
+    db: Session = Depends(get_db),
+):
+    exam = db.query(models.Exam).filter(models.Exam.exam_id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    submissions = db.query(models.Submission).filter(models.Submission.exam_id == exam_id).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Submission ID", "Student Name", "Student Email", "Final Score (%)",
+        "Functional Score", "Static Score", "Status", "Sync Status",
+        "Grading Duration (ms)", "Submitted At"
+    ])
+
+    for sub in submissions:
+        student_name = "Student"
+        student_email = f"student_{sub.user_id}@example.com"
+        if sub.user_account:
+            fn = sub.user_account.first_name or ""
+            ln = sub.user_account.last_name or ""
+            name = f"{fn} {ln}".strip()
+            student_name = name if name else (sub.user_account.email or f"User #{sub.user_id}")
+            if sub.user_account.email:
+                student_email = sub.user_account.email
+
+        writer.writerow([
+            sub.submission_id,
+            student_name,
+            student_email,
+            sub.final_score if sub.final_score is not None else (sub.score or 0.0),
+            sub.functional_score or 0.0,
+            sub.static_score or 0.0,
+            sub.status_label or ("Passed" if sub.status == 1 else "Failed"),
+            sub.sync_status or "pending",
+            sub.grading_duration_ms or 0.0,
+            sub.submitted_at.isoformat() if sub.submitted_at else "",
+        ])
+
+    csv_data = output.getvalue()
+    filename = f"exam_{exam_id}_results.csv"
+
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+

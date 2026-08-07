@@ -154,6 +154,8 @@ async def grade_submission_docker(
         temp_file.write(code)
         temp_file_path = temp_file.name
 
+    test_case_results = []
+
     try:
         for i, tc in enumerate(test_cases, 1):
             tc_weight = tc.weight if hasattr(tc, 'weight') and tc.weight is not None else 1.0
@@ -177,8 +179,9 @@ async def grade_submission_docker(
 
             output_str = stdout.strip()
             expected_str = tc.expected_output.strip() if tc.expected_output else ""
+            tc_passed = (return_code == 0 and output_str == expected_str)
 
-            if return_code == 0 and output_str == expected_str:
+            if tc_passed:
                 passed += 1
                 earned_weight += tc_weight
             else:
@@ -189,6 +192,18 @@ async def grade_submission_docker(
                     feedback_messages.append(f"Test case {i} failed with exit code {return_code}")
                 else:
                     feedback_messages.append(f"Test case {i} failed. Expected output didn't match.")
+
+            test_case_results.append({
+                "test_case_id": getattr(tc, 'test_case_id', getattr(tc, 'id', i)),
+                "input": tc_input,
+                "expected": expected_str,
+                "output": output_str,
+                "weight": tc_weight,
+                "passed": tc_passed,
+                "status": "passed" if tc_passed else "failed",
+                "stderr": stderr.strip(),
+                "exit_code": return_code,
+            })
 
     finally:
         if os.path.exists(temp_file_path):
@@ -204,4 +219,5 @@ async def grade_submission_docker(
         "status": status,
         "score": score,
         "feedback": feedback,
+        "test_cases": test_case_results,
     }

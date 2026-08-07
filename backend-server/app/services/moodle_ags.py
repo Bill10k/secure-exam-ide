@@ -399,3 +399,130 @@ def push_exam_grades_to_moodle(db: Session, exam_id: int) -> dict[str, Any]:
         "skipped": skipped,
         "messages": messages,
     }
+
+
+def push_submission_grade_to_moodle(db: Session, submission_id: int) -> dict[str, Any]:
+    submission = db.query(Submission).filter(Submission.submission_id == submission_id).first()
+    if not submission:
+        return {"sync_status": "failed", "message": "Submission not found"}
+
+    session = None
+    if submission.session_id:
+        session = db.query(ExamSession).filter(ExamSession.id == submission.session_id).first()
+    elif submission.exam_id and submission.user_id:
+        session = db.query(ExamSession).filter(
+            ExamSession.exam_id == submission.exam_id,
+            ExamSession.account_id == submission.user_id,
+        ).order_by(ExamSession.created_at.desc()).first()
+
+    if not session or (not session.raw_jwt and not session.ags_lineitem_url):
+        submission.sync_status = "not_available"
+        submission.sync_message = "No LTI launch session available for grade push."
+        submission.synced_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"sync_status": "not_available", "message": submission.sync_message}
+
+    exam = db.query(Exam).filter(Exam.exam_id == submission.exam_id).first() if submission.exam_id else None
+    if not exam:
+        submission.sync_status = "failed"
+        submission.sync_message = "Exam record not found."
+        submission.synced_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"sync_status": "failed", "message": submission.sync_message}
+
+    payload = _decode_launch(session)
+    ags_endpoint = _ags_endpoint(payload)
+    issuer = session.lti_issuer or payload.get("iss")
+    client_id = session.lti_client_id or _client_id(payload)
+    deployment_id = session.lti_deployment_id or payload.get("https://purl.imsglobal.org/spec/lti/claim/deployment_id")
+
+    scope_values = []
+    if session.ags_scopes_json:
+        try:
+            scope_values = json.loads(session.ags_scopes_json)
+        except json.JSONDecodeError:
+            scope_values = []
+    if not scope_values:
+        raw_scopes = ags_endpoint.get("scope", [])
+        scope_values = raw_scopes if isinstance(raw_scopes, list) else [raw_scopes] if raw_scopes else []
+
+    lineitem_url = session.ags_lineitem_url or ags_endpoint.get("lineitem")
+    lineitems_url = session.ags_lineitems_url or ags_endpoint.get("lineitems")
+
+    if not issuer or not client_id or (not lineitem_url and not lineitems_url):
+        submission.sync_status = "not_available"
+        submission.sync_message = "Missing AGS launch metadata."
+        submission.synced_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"sync_status": "not_available", "message": submission.sync_message}
+
+    token_endpoint = session.ags_token_endpoint
+    if not token_endpoint:
+        token_endpoint, discovery_message = _discover_token_endpoint(issuer, lineitem_url, lineitems_url)
+        if not token_endpoint:
+            submission.sync_status = "failed"
+            submission.sync_message = f"Unable to resolve Moodle token endpoint: {discovery_message}"
+            submission.synced_at = datetime.now(timezone.utc)
+            db.commit()
+            return {"sync_status": "failed", "message": submission.sync_message}
+        session.ags_token_endpoint = token_endpoint
+
+    private_key_path = Path(__file__).resolve().parents[2] / "private.key"
+    try:
+        private_key = private_key_path.read_bytes()
+    except Exception as exc:
+        submission.sync_status = "failed"
+        submission.sync_message = f"Private key read error: {exc}"
+        submission.synced_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"sync_status": "failed", "message": submission.sync_message}
+
+    access_token, token_error = _get_access_token(token_endpoint, client_id, private_key, scope_values)
+    if not access_token:
+        submission.sync_status = "failed"
+        submission.sync_message = f"Unable to obtain AGS access token: {token_error}"
+        submission.synced_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"sync_status": "failed", "message": submission.sync_message}
+
+    if not lineitem_url and lineitems_url:
+        lineitem_url, lineitem_error = _create_lineitem(lineitems_url, access_token, exam)
+        if not lineitem_url:
+            submission.sync_status = "failed"
+            submission.sync_message = lineitem_error or "Unable to create Moodle line item."
+            submission.synced_at = datetime.now(timezone.utc)
+            db.commit()
+            return {"sync_status": "failed", "message": submission.sync_message}
+        session.ags_lineitem_url = lineitem_url
+
+    if not lineitem_url:
+        submission.sync_status = "not_available"
+        submission.sync_message = "No Moodle line item URL available."
+        submission.synced_at = datetime.now(timezone.utc)
+        db.commit()
+        return {"sync_status": "not_available", "message": submission.sync_message}
+
+    score_to_push = submission.final_score if submission.final_score is not None else (submission.score or 0.0)
+    graded_user_id = session.ags_grading_user_override or session.lti_user_sub or payload.get("sub") or session.user_id
+
+    success, push_message = _push_score(lineitem_url, access_token, str(graded_user_id), score_to_push)
+    now = datetime.now(timezone.utc)
+    submission.synced_at = now
+    submission.sync_message = push_message
+    session.ags_last_pushed_at = now
+    session.ags_last_push_message = push_message
+
+    if success:
+        submission.sync_status = "synced"
+        session.ags_push_status = "pushed"
+        session.ags_lineitem_url = lineitem_url
+        session.lti_issuer = issuer
+        session.lti_client_id = client_id
+        session.lti_deployment_id = deployment_id
+    else:
+        submission.sync_status = "failed"
+        session.ags_push_status = "failed"
+
+    db.commit()
+    return {"sync_status": submission.sync_status, "message": push_message}
+

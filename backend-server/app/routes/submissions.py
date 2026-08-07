@@ -1,3 +1,5 @@
+import hashlib
+import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -7,6 +9,7 @@ from ..models import Exam, ExamSession, Question, Submission
 from ..schemas import CodeExecutionRequest, CodeExecutionResponse, SubmissionResponse
 from ..services.exam_timing import get_session_timing
 from ..services.gradebook import refresh_exam_gradebook
+from ..services.moodle_ags import push_submission_grade_to_moodle
 from ..services.sandbox import execute_code_docker, grade_submission_docker
 
 router = APIRouter(prefix="/submissions", tags=["Submissions"])
@@ -33,8 +36,11 @@ async def submit_code(
 ):
     """
     Grade submitted code using hidden test cases and static analysis,
-    combine both scores, enforce session timing, and save the result.
+    combine both scores, enforce session timing, save the result,
+    and automatically push the grade to Moodle via LTI AGS.
     """
+    start_time = time.perf_counter()
+
     question = (
         db.query(Question)
         .filter(Question.question_id == request.question_id)
@@ -126,9 +132,18 @@ async def submit_code(
         2,
     )
 
-    functional_passed = functional_result.get("status") == "passed"
+    functional_status = functional_result.get("status")
+    functional_passed = functional_status == "passed"
     status_code = 1 if functional_passed else 0
-    status_text = "passed" if functional_passed else "failed"
+
+    if functional_passed:
+        status_label = "Passed"
+    elif "syntax" in str(functional_result.get("feedback", "")).lower() or "compile" in str(functional_result.get("feedback", "")).lower():
+        status_label = "Compile Error"
+    elif "timeout" in str(functional_result.get("feedback", "")).lower() or "error" in str(functional_result.get("feedback", "")).lower():
+        status_label = "Runtime Error"
+    else:
+        status_label = "Failed"
 
     feedback_parts = [
         functional_result.get("feedback", "Functional grading completed.")
@@ -146,14 +161,26 @@ async def submit_code(
             )
         )
 
+    submission_hash = hashlib.sha256(request.code.encode("utf-8")).hexdigest()
+    grading_duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
     new_submission = Submission(
         session_id=request.session_id,
         user_id=user_id,
         question_id=request.question_id,
         exam_id=question.exam_id,
         submitted_code=request.code,
+        functional_score=round(functional_score, 2),
+        static_score=round(static_score, 2),
+        final_score=final_score,
         score=final_score,
         status=status_code,
+        status_label=status_label,
+        functional_results=functional_result.get("test_cases", []),
+        static_analysis=static_result.get("results", []),
+        grading_duration_ms=grading_duration_ms,
+        grading_version="v1",
+        submission_hash=submission_hash,
     )
 
     try:
@@ -168,8 +195,16 @@ async def submit_code(
             detail="Unable to save submission result.",
         ) from exc
 
+    # Resilient decoupled Moodle AGS grade push
+    try:
+        push_submission_grade_to_moodle(db, new_submission.submission_id)
+    except Exception as exc:
+        new_submission.sync_status = "failed"
+        new_submission.sync_message = f"AGS push error: {str(exc)}"
+        db.commit()
+
     return SubmissionResponse(
-        status=status_text,
+        status=status_label.lower(),
         score=final_score,
         feedback="\n".join(feedback_parts),
         functional_score=round(functional_score, 2),
@@ -178,3 +213,4 @@ async def submit_code(
         static_weight=effective_static_weight,
         static_checks=static_result.get("results", []),
     )
+

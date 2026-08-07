@@ -66,7 +66,7 @@ class StaticRuleResponse(StaticRuleBase):
 class QuestionBase(BaseModel):
     title: str
     description: str
-    diff_level: int
+    diff_level: Optional[int] = 1
     default_code: Optional[str] = None
 
     language: str = "python"
@@ -204,6 +204,7 @@ class ExamSummaryResponse(BaseModel):
     duration: int
     language: str = "python"
     question_count: int = 0
+    submission_count: int = 0
     published: bool = True
 
     class Config:
