@@ -673,6 +673,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                 document.getElementById('form-question').reset();
                 document.getElementById('q-id-hidden').value = "";
                 document.getElementById('testcases-section').classList.add('hidden');
+                renderTestCases([]);
 
                 document.querySelectorAll('.view-panel').forEach(el => el.classList.add('hidden'));
                 document.getElementById('panel-question-editor').classList.remove('hidden');
@@ -914,7 +915,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                     document.getElementById('q-id-hidden').value = data.question_id;
                     document.getElementById('testcases-section').classList.remove('hidden');
                     
-                    if (data.test_cases) renderTestCases(data.test_cases);
+                    renderTestCases(data.test_cases || []);
                 }} catch (err) {{
                     showToast(err.message, 'error');
                 }} finally {{
@@ -956,6 +957,10 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
             }}
 
             function openTestCaseModal(tcId = null, inputData = '', expectedOutput = '', isHidden = true, weight = 1.0) {{
+                if (!tcId && !currentQuestionId) {{
+                    showToast('Please save the question first before adding test cases.', 'error');
+                    return;
+                }}
                 document.getElementById('tc-modal-id').value = tcId || '';
                 document.getElementById('tc-modal-input').value = inputData;
                 document.getElementById('tc-modal-output').value = expectedOutput;

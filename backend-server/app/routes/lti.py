@@ -779,8 +779,16 @@ def create_question_from_lti(question_data: QuestionCreate, db: Session = Depend
 
 @router.post("/api/testcase", response_model=TestCaseResponse)
 def create_testcase_from_lti(tc_data: dict, db: Session = Depends(get_db)):
+    question_id = tc_data.get("question_id")
+    if not question_id:
+        raise HTTPException(status_code=400, detail="Missing question_id")
+
+    question = db.query(models.Question).filter(models.Question.question_id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+
     new_tc = models.TestCase(
-        question_id=tc_data.get("question_id"),
+        question_id=question_id,
         input_data=tc_data.get("input_data"),
         expected_output=tc_data.get("expected_output"),
         is_hidden=tc_data.get("is_hidden", True),
