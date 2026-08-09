@@ -113,10 +113,9 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
         sub_count = len(exam.submissions)
         sub_text = "1 submission" if sub_count == 1 else f"{sub_count} submissions"
         icon = "🟢" if sub_count > 0 else "⚪"
-        selected_attr = "selected" if idx == 0 else ""
-        options_html += f'<option value="{exam.exam_id}" {selected_attr}>{icon} {exam.title} ({exam.duration}m) — {sub_text}</option>'
+        options_html += f'<option value="{exam.exam_id}">{icon} {exam.title} ({exam.duration}m) — {sub_text}</option>'
 
-    initial_results_hidden = "" if exams else "hidden"
+    initial_results_hidden = "hidden"
 
     language_options_html = ""
     language_labels = {
@@ -1345,7 +1344,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         </div>
                         <div class="flex items-center gap-3">
                             <select id="results-exam-select" onchange="loadSelectedExamResults()" class="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white font-semibold text-gray-800 shadow-xs">
-                                <option value="">-- Choose an examination --</option>
+                                <option value="" selected>-- Choose an examination --</option>
                                 {options_html}
                             </select>
                             <span id="results-autorefresh-toggle" onclick="toggleAutoRefreshPause()" title="Click to pause or resume auto-refresh" class="px-3 py-2 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-full text-xs font-semibold cursor-pointer select-none">
@@ -1354,7 +1353,13 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         </div>
                     </div>
 
-                    <div id="results-dashboard-container" class="space-y-6 {initial_results_hidden}">
+                    <div id="results-select-prompt" class="bg-gray-800/90 border border-gray-700 rounded-xl p-12 text-center space-y-3">
+                        <div class="text-4xl">📋</div>
+                        <h3 class="text-lg font-bold text-white">Select an Examination</h3>
+                        <p class="text-xs text-gray-400 max-w-md mx-auto">Please select an examination from the dropdown above to view student submissions, metrics, and grade sync status.</p>
+                    </div>
+
+                    <div id="results-dashboard-container" class="space-y-6 hidden">
                         <!-- Summary Cards -->
                         <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
                             <div class="bg-gray-800/90 border border-gray-700 rounded-xl p-4 shadow-sm">
@@ -1620,11 +1625,8 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
             }} else {{
                 initResultsDashboard();
             }}
-            setTimeout(initResultsDashboard, 100);
-
-            async function loadResultsTab() {{
+               async function loadResultsTab() {{
                 const select = document.getElementById('results-exam-select');
-                const activeId = getCurrentExamId();
                 if (!allExamsList || !allExamsList.length) {{
                     try {{
                         const res = await fetch('/lti/exams');
@@ -1633,12 +1635,13 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                 }}
                 
                 if (allExamsList && allExamsList.length) {{
-                    select.innerHTML = '<option value="">-- Choose an examination --</option>' +
-                        allExamsList.map((e, idx) => {{
+                    const currentVal = select ? select.value : '';
+                    select.innerHTML = '<option value="" ' + (!currentVal ? 'selected' : '') + '>-- Choose an examination --</option>' +
+                        allExamsList.map((e) => {{
                             const subCount = e.submission_count || 0;
                             const subText = subCount === 1 ? '1 submission' : `${{subCount}} submissions`;
                             const icon = subCount > 0 ? '🟢' : '⚪';
-                            const sel = (activeId && String(activeId) === String(e.exam_id)) || (!activeId && idx === 0) ? 'selected' : '';
+                            const sel = (currentVal && String(currentVal) === String(e.exam_id)) ? 'selected' : '';
                             return `<option value="${{e.exam_id}}" ${{sel}}>${{icon}} ${{escapeHtml(e.title)}} (${{e.duration}}m) — ${{subText}}</option>`;
                         }}).join('');
                     loadSelectedExamResults();
@@ -1648,21 +1651,18 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
             }}
 
             function loadSelectedExamResults() {{
-                const select = document.getElementById('results-exam-select');
-                if (select && !select.value && select.options.length > 0) {{
-                    for (let i = 0; i < select.options.length; i++) {{
-                        if (select.options[i].value) {{
-                            select.selectedIndex = i;
-                            break;
-                        }}
-                    }}
-                }}
                 const examId = getCurrentExamId();
                 const container = document.getElementById('results-dashboard-container');
+                const prompt = document.getElementById('results-select-prompt');
+
                 if (!examId) {{
                     if (container) container.classList.add('hidden');
+                    if (prompt) prompt.classList.remove('hidden');
+                    stopResultsAutoRefresh();
                     return;
                 }}
+
+                if (prompt) prompt.classList.add('hidden');
                 if (container) container.classList.remove('hidden');
                 currentResultsPage = 1;
                 fetchResultsTable();
@@ -1791,11 +1791,13 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         syncBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 cursor-help" id="sync-badge-${{item.submission_id}}" title="Successfully synchronized to Moodle AGS at ${{timeStr}}.&#10;Details: ${{syncMsg}}">✓ Synced</span>`;
                     }} else if (item.sync_status === 'failed') {{
                         syncBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 border border-red-200 cursor-help" id="sync-badge-${{item.submission_id}}" title="AGS Sync Failed (Attempted: ${{timeStr}}).&#10;Reason: ${{syncMsg}}">✗ Failed</span>`;
+                    }} else if (item.sync_status === 'not_available') {{
+                        syncBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 cursor-help" id="sync-badge-${{item.submission_id}}" title="Moodle Grade Sync Not Configured on this activity launch.&#10;Reason: ${{syncMsg}}">Not Configured</span>`;
                     }} else {{
                         syncBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200 cursor-help" id="sync-badge-${{item.submission_id}}" title="Pending synchronization.&#10;Details: ${{syncMsg}}">Pending</span>`;
                     }}
 
-                    const retryBtnHtml = item.sync_status === 'failed' 
+                    const retryBtnHtml = (item.sync_status === 'failed' || item.sync_status === 'not_available') 
                         ? `<button type="button" onclick="retryMoodleSync(${{item.submission_id}}, this)" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-2.5 py-1 rounded shadow-xs transition">Retry Moodle Sync</button>`
                         : '';
 
@@ -1906,6 +1908,16 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                 fetchResultsTable(1);
             }}
 
+            function extractErrorMessage(data, fallback = 'An error occurred') {{
+                if (typeof data === 'string') return data;
+                if (data && data.message) return data.message;
+                if (data && data.detail) {{
+                    if (typeof data.detail === 'string') return data.detail;
+                    if (Array.isArray(data.detail)) return data.detail.map(d => d.msg || d.detail || JSON.stringify(d)).join('; ');
+                }}
+                return fallback;
+            }}
+
             async function retryMoodleSync(submissionId, btnEl) {{
                 if (btnEl) {{
                     btnEl.disabled = true;
@@ -1928,7 +1940,7 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
                         if (btnEl) btnEl.remove();
                     }} else {{
                         const errMsg = extractErrorMessage(data, `HTTP ${{res.status}} ${{res.statusText || 'Sync error'}}`);
-                        showToast("✗ Moodle Sync failed: " + errMsg, "error");
+                        showToast("✗ Moodle Sync: " + errMsg, "error");
                         if (btnEl) {{
                             btnEl.disabled = false;
                             btnEl.innerText = "Retry Moodle Sync";

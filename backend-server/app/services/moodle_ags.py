@@ -449,6 +449,22 @@ def push_submission_grade_to_moodle(db: Session, submission_id: int) -> dict[str
     lineitem_url = session.ags_lineitem_url or ags_endpoint.get("lineitem")
     lineitems_url = session.ags_lineitems_url or ags_endpoint.get("lineitems")
 
+    if not lineitem_url and not lineitems_url:
+        fallback_session = db.query(ExamSession).filter(
+            ExamSession.exam_id == submission.exam_id,
+            (ExamSession.ags_lineitem_url.isnot(None)) | (ExamSession.ags_lineitems_url.isnot(None))
+        ).order_by(ExamSession.created_at.desc()).first()
+
+        if fallback_session:
+            lineitem_url = fallback_session.ags_lineitem_url
+            lineitems_url = fallback_session.ags_lineitems_url
+            if not issuer:
+                issuer = fallback_session.lti_issuer or _decode_launch(fallback_session).get("iss")
+            if not client_id:
+                client_id = fallback_session.lti_client_id or _client_id(_decode_launch(fallback_session))
+            if not token_endpoint:
+                token_endpoint = fallback_session.ags_token_endpoint
+
     if not issuer or not client_id or (not lineitem_url and not lineitems_url):
         submission.sync_status = "not_available"
         submission.sync_message = "Missing AGS launch metadata."

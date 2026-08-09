@@ -735,7 +735,7 @@ if (error) {
   return (
     <div className="w-full h-screen flex flex-col overflow-hidden">
 
-      <Navbar remainingSeconds={remainingSeconds} />
+      <Navbar remainingSeconds={remainingSeconds} examTitle={examState?.title} />
 
       {submitError && (
         <div className="absolute left-1/2 top-20 z-40 w-[min(92vw,560px)] -translate-x-1/2 rounded border border-red-400/40 bg-red-950/95 px-4 py-3 text-sm text-red-100 shadow-xl">
