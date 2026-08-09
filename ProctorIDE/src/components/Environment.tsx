@@ -432,27 +432,20 @@ const closeExamWindow = useCallback(async () => {
   }
 }, [flushAutosave]);
 
-const submitCurrentQuestion = useCallback(async (forcedByTimeout = false) => {
-  if (submissionInFlightRef.current) return
-  submissionInFlightRef.current = true
-
-  const questionId = activeQuestionIdRef.current
-  const currentCode = questionCodesRef.current[questionId] ?? code ?? ""
-  const term = terminalRef.current
-
-  try {
-    await flushAutosave(questionId)
+const submitQuestion = useCallback(
+  async (questionId: number, codeToSubmit: string, forcedByTimeout = false) => {
+    const term = terminalRef.current
 
     if (term) {
       term.writeln(
         forcedByTimeout
-          ? "\x1b[31m\r\nTime is up. Submitting latest code...\x1b[0m"
-          : "\x1b[34m\r\nSubmitting code for grading...\x1b[0m",
+          ? `\x1b[31m\r\n[Q${questionId}] Submitting latest code (timeout)...\x1b[0m`
+          : `\x1b[34m\r\n[Q${questionId}] Submitting code for grading...\x1b[0m`,
       )
     }
 
     const submissionPayload = {
-      code: currentCode,
+      code: codeToSubmit,
       language: selectedLanguage,
       question_id: questionId,
       session_id: sessionId,
@@ -491,33 +484,85 @@ const submitCurrentQuestion = useCallback(async (forcedByTimeout = false) => {
       }
 
       if (term) {
-        term.writeln(`Status: ${result.status === "passed" ? "\x1b[32mPassed\x1b[0m" : "\x1b[31mFailed\x1b[0m"} (${result.score}%)`)
+        term.writeln(
+          `[Q${questionId}] Status: ${result.status === "passed" ? "\x1b[32mPassed\x1b[0m" : "\x1b[31mFailed\x1b[0m"} (${result.score}%)`
+        )
         if (result.feedback) {
           term.writeln(result.feedback.replace(/\n/g, "\r\n"))
         }
       }
+
+      return { questionId, status: "submitted", result }
+    } catch (err: any) {
+      console.error(`[Environment] Submission failed for question ${questionId}`, err)
+
+      if (pendingSubmissionId === null && !forcedByTimeout) {
+        await savePendingSubmissionLocally(submissionPayload).catch(() => null)
+      }
+
+      if (term) {
+        term.writeln(`\x1b[31m[Q${questionId}] Error submitting code: ${err.message || "Failed"}\x1b[0m`)
+      }
+
+      return { questionId, status: "queued", error: err }
     } finally {
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId)
       }
     }
-  } finally {
-    submissionInFlightRef.current = false
-  }
-}, [code, flushAutosave, savePendingSubmissionLocally, sessionId])
+  },
+  [savePendingSubmissionLocally, selectedLanguage, sessionId]
+)
+
+const submitAllQuestions = useCallback(
+  async (forcedByTimeout = false) => {
+    if (submissionInFlightRef.current) return
+    submissionInFlightRef.current = true
+
+    try {
+      if (activeQuestionIdRef.current) {
+        questionCodesRef.current[activeQuestionIdRef.current] = code ?? ""
+      }
+
+      const questions: HydrateQuestion[] = examState?.questions || []
+      const term = terminalRef.current
+
+      if (term) {
+        term.writeln("\x1b[35m\r\nStarting submission process for all exam questions...\x1b[0m")
+      }
+
+      await Promise.all(
+        questions.map((q) => flushAutosave(q.question_id, forcedByTimeout))
+      ).catch((e) => console.error("[Environment] Error flushing question snapshots", e))
+
+      const results = []
+      for (const q of questions) {
+        const qId = q.question_id
+        const qCode = questionCodesRef.current[qId] ?? q.snapshot?.code ?? q.default_code ?? ""
+        const res = await submitQuestion(qId, qCode, forcedByTimeout)
+        results.push(res)
+      }
+
+      return results
+    } finally {
+      submissionInFlightRef.current = false
+    }
+  },
+  [code, examState?.questions, flushAutosave, submitQuestion]
+)
 
 const handleExamTimeout = useCallback(async () => {
   if (timeoutSubmitStartedRef.current) return
   timeoutSubmitStartedRef.current = true
   setIsTimedOut(true)
-  setTimeoutMessage("Time is up. Submitting your latest code...")
+  setTimeoutMessage("Time is up. Submitting your code for all questions...")
 
   const fallbackCloseId = window.setTimeout(() => {
     void closeExamWindow()
-  }, 7000)
+  }, 10000)
 
   try {
-    await submitCurrentQuestion(true)
+    await submitAllQuestions(true)
     setTimeoutMessage("Time is up. Submission complete. Closing ProctorIDE...")
   } catch (error) {
     const message = error instanceof Error ? error.message : "Submission could not be confirmed"
@@ -529,7 +574,7 @@ const handleExamTimeout = useCallback(async () => {
       void closeExamWindow()
     }, 1500)
   }
-}, [closeExamWindow, submitCurrentQuestion])
+}, [closeExamWindow, submitAllQuestions])
 
 useEffect(() => {
   if (!submissionComplete || shutdownCountdown === null) return;
@@ -606,46 +651,46 @@ useEffect(() => {
 
   const handleSubmit = async () => {
     if (isTimedOut || isSubmitLocked || successfulSubmitRef.current) {
-    return;
-  }
+      return;
+    }
 
-  console.log("[Submit] Starting submission");
+    console.log("[Submit] Starting multi-question submission");
 
-  setSubmitError(null);
-  setIsSubmitLocked(true);
-  setSubmitOverlayMessage("Submitting your code. Please wait...");
+    setSubmitError(null);
+    setIsSubmitLocked(true);
+    setSubmitOverlayMessage("Submitting all examination questions. Please wait...");
 
-  try {
-    console.log("[Submit] Calling submitCurrentQuestion()");
+    try {
+      console.log("[Submit] Calling submitAllQuestions(false)");
 
-    await submitCurrentQuestion(false);
+      await submitAllQuestions(false);
 
-    successfulSubmitRef.current = true;
-    setSubmissionComplete(true);
+      successfulSubmitRef.current = true;
+      setSubmissionComplete(true);
 
-    console.log("[Submit] Setting completion state");
+      console.log("[Submit] Setting completion state");
 
-    setSubmitOverlayMessage(
-      "Submission complete. ProctorIDE will close automatically."
-    );
+      setSubmitOverlayMessage(
+        "Submission complete for all questions. ProctorIDE will close automatically."
+      );
 
-    setShutdownCountdown(10);
+      setShutdownCountdown(10);
 
-    console.log("[Submit] Countdown started:", 10);
-  } catch (e: any) {
-    console.error("[Submit] Submission failed", e);
+      console.log("[Submit] Shutdown countdown started:", 10);
+    } catch (e: any) {
+      console.error("[Submit] Submission failed", e);
 
-    setIsSubmitLocked(false);
-    setSubmitOverlayMessage(null);
-    setShutdownCountdown(null);
+      setIsSubmitLocked(false);
+      setSubmitOverlayMessage(null);
+      setShutdownCountdown(null);
 
-    setSubmitError(e.message || "Submission failed. Please try again.");
+      setSubmitError(e.message || "Submission failed. Please try again.");
 
-    terminalRef.current?.writeln(
-      `\x1b[31mError submitting code: ${e.message}\x1b[0m`
-    );
-  }
-};
+      terminalRef.current?.writeln(
+        `\x1b[31mError submitting code: ${e.message}\x1b[0m`
+      );
+    }
+  };
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (isTimedOut || isSubmitLocked) return
