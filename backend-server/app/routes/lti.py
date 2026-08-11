@@ -1336,13 +1336,19 @@ def export_exam_results(
 @lti_mgmt_router.post("/sync/retry/{submission_id}")
 def retry_submission_moodle_sync(submission_id: int, db: Session = Depends(get_db)):
     from ..services.moodle_ags import push_submission_grade_to_moodle
-    result = push_submission_grade_to_moodle(db, submission_id)
-    return result
+    try:
+        result = push_submission_grade_to_moodle(db, submission_id)
+        return result
+    except Exception as exc:
+        return {"sync_status": "failed", "message": f"Server error during grade sync: {str(exc)}"}
 
 
 @lti_mgmt_router.post("/sync/retry-exam/{exam_id}")
 def retry_exam_moodle_sync(exam_id: int, db: Session = Depends(get_db)):
     from ..services.moodle_ags import push_exam_grades_to_moodle
-    result = push_exam_grades_to_moodle(db, exam_id)
-    return result
+    try:
+        result = push_exam_grades_to_moodle(db, exam_id)
+        return result
+    except Exception as exc:
+        return {"sync_status": "failed", "message": f"Server error during exam grade sync: {str(exc)}"}
 

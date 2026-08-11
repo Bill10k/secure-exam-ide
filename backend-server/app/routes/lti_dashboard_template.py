@@ -1909,11 +1909,14 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
             }}
 
             function extractErrorMessage(data, fallback = 'An error occurred') {{
-                if (typeof data === 'string') return data;
-                if (data && data.message) return data.message;
+                if (typeof data === 'string' && data.trim()) return data.trim();
+                if (data && typeof data.message === 'string' && data.message.trim()) return data.message.trim();
                 if (data && data.detail) {{
-                    if (typeof data.detail === 'string') return data.detail;
-                    if (Array.isArray(data.detail)) return data.detail.map(d => d.msg || d.detail || JSON.stringify(d)).join('; ');
+                    if (typeof data.detail === 'string' && data.detail.trim()) return data.detail.trim();
+                    if (Array.isArray(data.detail) && data.detail.length > 0) {{
+                        const items = data.detail.map(d => d.msg || d.detail || JSON.stringify(d)).filter(Boolean);
+                        if (items.length) return items.join('; ');
+                    }}
                 }}
                 return fallback;
             }}
@@ -1927,7 +1930,12 @@ def get_instructor_dashboard_html(id_token: str, exams: list):
 
                 try {{
                     const res = await fetch(`/lti/sync/retry/${{submissionId}}`, {{method: 'POST'}});
-                    const data = await res.json();
+                    let data = {{}};
+                    try {{
+                        data = await res.json();
+                    }} catch (parseErr) {{
+                        data = {{ detail: `Server returned HTTP ${{res.status}} response` }};
+                    }}
                     if (res.ok && data.sync_status === 'synced') {{
                         showToast("✓ Grade pushed to Moodle successfully!", "success");
                         const badge = document.getElementById('sync-badge-' + submissionId);
