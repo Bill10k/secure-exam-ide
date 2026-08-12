@@ -38,6 +38,29 @@ def hydrate_exam_session(session_id: int, db: Session = Depends(get_db)):
     hydrated_questions = []
     for question in exam.questions:
         latest_snapshot = latest_snapshots.get(question.question_id)
+        visible_test_cases = [
+            {
+                "test_case_id": tc.test_case_id,
+                "question_id": tc.question_id,
+                "input_data": tc.input_data,
+                "expected_output": tc.expected_output,
+                "is_hidden": tc.is_hidden,
+                "weight": tc.weight,
+            }
+            for tc in question.test_cases
+            if not tc.is_hidden
+        ]
+        static_rules = [
+            {
+                "rule_id": r.rule_id,
+                "question_id": r.question_id,
+                "rule_type": r.rule_type,
+                "expected_value": r.expected_value,
+                "weight": r.weight,
+                "required": r.required,
+            }
+            for r in question.static_rules
+        ]
         hydrated_questions.append(
             {
                 "question_id": question.question_id,
@@ -46,6 +69,11 @@ def hydrate_exam_session(session_id: int, db: Session = Depends(get_db)):
                 "description": question.description,
                 "diff_level": question.diff_level,
                 "default_code": question.default_code,
+                "language": question.language or exam.language or "python",
+                "functional_weight": question.functional_weight,
+                "static_weight": question.static_weight,
+                "static_rules": static_rules,
+                "sample_test_cases": visible_test_cases,
                 "snapshot": (
                     {
                         "code": latest_snapshot.code,

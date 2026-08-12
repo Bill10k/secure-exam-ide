@@ -6,12 +6,32 @@ import { useAuth } from "../context/AuthContext"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { invoke } from "@tauri-apps/api/core"
 
+type StaticRuleEntry = {
+  rule_id?: number
+  rule_type: string
+  expected_value?: string
+  weight: number
+  required?: boolean
+}
+
+type SampleTestCaseEntry = {
+  test_case_id: number
+  input_data: string
+  expected_output: string
+  weight?: number
+}
+
 type HydrateQuestion = {
   question_id: number
   title: string
   description: string
   diff_level: number
   default_code?: string | null
+  language?: string
+  functional_weight?: number
+  static_weight?: number
+  static_rules?: StaticRuleEntry[]
+  sample_test_cases?: SampleTestCaseEntry[]
   snapshot?: {
     code: string
     version: number

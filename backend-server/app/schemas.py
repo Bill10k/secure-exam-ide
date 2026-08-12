@@ -56,7 +56,7 @@ class StaticRuleCreate(StaticRuleBase):
 
 class StaticRuleResponse(StaticRuleBase):
     rule_id: int
-    question_id: int
+    question_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -185,6 +185,7 @@ class QuestionDetailResponse(QuestionResponse):
 
 class QuestionHydrateResponse(QuestionResponse):
     snapshot: Optional["CodeSnapshotHydrateResponse"] = None
+    sample_test_cases: List[TestCaseResponse] = Field(default_factory=list)
 
 
 # Exam
